@@ -68,12 +68,13 @@ func runAnalyze(cmd *cobra.Command, _ []string) error {
 	}
 
 	result := &types.Result{
-		Timestamp:      time.Now(),
-		PreviousCommit: previousCommit,
-		CurrentCommit:  getGitCommit(),
-		HasChanges:     len(changes) > 0,
-		Changes:        changes,
-		Impact:         impactResult,
+		Timestamp:        time.Now(),
+		PreviousCommit:   previousCommit,
+		CurrentCommit:    getGitCommit(),
+		PreviousBaseline: cfg.Baseline,
+		HasChanges:       len(changes) > 0,
+		Changes:          changes,
+		Impact:           impactResult,
 	}
 
 	verbose, _ := cmd.Flags().GetBool("verbose")

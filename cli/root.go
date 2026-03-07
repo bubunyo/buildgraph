@@ -63,7 +63,7 @@ func initConfig() {
 	viper.SetDefault("exclude.skip_tests", defaults.Exclude.SkipTests)
 	viper.SetDefault("exclude.patterns", defaults.Exclude.Patterns)
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := viper.ReadInConfig(); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("error reading config file %s: %v", cfgFile, err)
 	}
 }
