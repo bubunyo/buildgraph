@@ -30,7 +30,7 @@ BuildGraph achieves this by:
 ## Installation
 
 ```bash
-go install github.com/bubunyo/buildgraph/cmd/buildgraph@latest
+go install github.com/bubunyo/buildgraph/cmd@latest
 ```
 
 Or build from source:
@@ -38,7 +38,7 @@ Or build from source:
 ```bash
 git clone https://github.com/bubunyo/buildgraph
 cd buildgraph
-go build -o buildgraph ./cmd/main.go
+go build -o buildgraph ./cmd
 ```
 
 **Requires Go 1.24+**
@@ -229,11 +229,7 @@ See [`bubunyo/buildgraph-action`](https://github.com/bubunyo/buildgraph-action) 
 
 ### How the baseline is persisted
 
-The baseline artifact is uploaded at the end of each successful run and downloaded at the start of the next. Each branch gets its own artifact (`buildgraph-baseline`) so feature branches don't interfere with each other. The first run is always safe — if no artifact exists yet, BuildGraph treats all functions as new and builds all services.
-
-### First run behaviour
-
-On the very first run there is no baseline yet. BuildGraph treats all functions as new and returns all services in `services_to_build`. This is the safe default — nothing is skipped on a cold start.
+The baseline artifact is uploaded at the end of each successful run and downloaded at the start of the next. Each branch gets its own artifact (`buildgraph-baseline`) so feature branches don't interfere with each other. On the very first run no artifact exists yet — BuildGraph treats all functions as new and returns all services in `services_to_build`, so a cold start is always safe.
 
 ## How it works
 
@@ -275,7 +271,6 @@ On each run, BuildGraph hashes every loaded `.go` file and stores the results in
 
 ```
 buildgraph/
-├── buildgraph.yaml              # Config (created by `buildgraph init`)
 ├── cmd/
 │   └── main.go                  # Binary entry point — calls cli.Execute()
 ├── cli/
@@ -284,7 +279,10 @@ buildgraph/
 │   ├── generate.go              # `buildgraph generate` subcommand
 │   ├── init.go                  # `buildgraph init` subcommand
 │   ├── output.go                # JSON and text output formatters
+│   ├── output_test.go           # Output formatter tests
 │   └── pipeline.go              # Shared analysis pipeline
+├── action/                      # GitHub Action (git submodule → bubunyo/buildgraph-action)
+│   └── action.yml
 └── pkg/
     ├── analyzer/
     │   ├── analyzer.go           # Package loading, CHA call graph, hashing
