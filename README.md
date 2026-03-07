@@ -180,7 +180,7 @@ The baseline is persisted between runs using your CI's artifact or cache system.
 
 ### GitHub Actions
 
-The pattern uses job outputs to pass the service list from `analyze` to a matrix `build` job.
+The easiest way to integrate is with the official [`bubunyo/buildgraph-action`](https://github.com/bubunyo/buildgraph-action). It handles install, analyze, baseline persistence, and generate in a single step.
 
 ```yaml
 jobs:
@@ -196,49 +196,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # Restore the baseline from the last successful run.
-      # continue-on-error: true so the first run (no artifact yet) still works.
-      - name: Download previous baseline
-        uses: actions/download-artifact@v4
-        with:
-          name: buildgraph-baseline
-          path: .buildgraph
-        continue-on-error: true
-
-      - name: Install buildgraph
-        run: go install github.com/bubunyo/buildgraph/cmd@latest
-
-      - name: Analyze
+      - name: Run BuildGraph
         id: buildgraph
-        run: |
-          buildgraph analyze --format json --output impact.json
-
-          HAS_CHANGES=$(jq -r '.has_changes' impact.json)
-          echo "has_changes=${HAS_CHANGES}" >> "$GITHUB_OUTPUT"
-
-          if [ "${HAS_CHANGES}" = "true" ]; then
-            SERVICES=$(jq -c '.impact.services_to_build' impact.json)
-          else
-            SERVICES='[]'
-          fi
-          echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
-
-      # Save a fresh baseline so the next run can diff against it.
-      - name: Generate new baseline
-        if: success()
-        run: buildgraph generate
-
-      - uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: buildgraph-baseline
-          path: .buildgraph/baseline.json
-          retention-days: 90
+        uses: bubunyo/buildgraph-action@v1
 
   # ── 2. Build only affected services ────────────────────────────────────────
   build:
@@ -265,7 +225,7 @@ jobs:
         run: go test ./services/${{ matrix.service }}/...
 ```
 
-A ready-to-use workflow is available at [`.github/workflows/buildgraph.yml`](.github/workflows/buildgraph.yml).
+See [`bubunyo/buildgraph-action`](https://github.com/bubunyo/buildgraph-action) for all available inputs and outputs, and [`.github/workflows/buildgraph.yml`](.github/workflows/buildgraph.yml) for the full ready-to-use workflow.
 
 ### GitLab CI
 

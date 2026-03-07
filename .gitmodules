@@ -1,0 +1,3 @@
+[submodule "action"]
+	path = action
+	url = git@github.com:bubunyo/buildgraph-action.git
