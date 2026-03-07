@@ -32,10 +32,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: true
 
       - name: Run BuildGraph
         id: buildgraph
-        uses: bubunyo/buildgraph-action@v0.0.0-alpha
+        uses: ./action
 
   # ── 2. Build affected services ───────────────────────────────────────────────
   build:
