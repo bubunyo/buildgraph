@@ -234,65 +234,9 @@ jobs:
 
 See [`bubunyo/buildgraph-action`](https://github.com/bubunyo/buildgraph-action) for all available inputs and outputs, and [`.github/workflows/buildgraph.yml`](.github/workflows/buildgraph.yml) for the full ready-to-use workflow.
 
-### GitLab CI
-
-The pattern uses a branch-keyed cache to persist the baseline and a dotenv artifact to pass the service list to downstream jobs.
-
-```yaml
-stages:
-  - analyze
-  - build
-
-analyze:
-  stage: analyze
-  image: golang:1.24
-  cache:
-    key: buildgraph-baseline-$CI_COMMIT_REF_SLUG
-    paths:
-      - .buildgraph/
-  script:
-    - go install github.com/bubunyo/buildgraph/cmd@latest
-    - buildgraph analyze --format json --output impact.json || true
-    - |
-      HAS_CHANGES=$(jq -r '.has_changes' impact.json)
-      SERVICES=$(jq -r '.impact.services_to_build | join(" ")' impact.json)
-      echo "HAS_CHANGES=${HAS_CHANGES}" >> analyze.env
-      echo "SERVICES_TO_BUILD=${SERVICES}" >> analyze.env
-    - buildgraph generate
-  artifacts:
-    reports:
-      dotenv: analyze.env
-    paths:
-      - impact.json
-    expire_in: 7 days
-
-build:
-  stage: build
-  image: golang:1.24
-  rules:
-    - if: $HAS_CHANGES == "true"
-  script:
-    - |
-      for svc in $SERVICES_TO_BUILD; do
-        echo "Building $svc..."
-        go build -o bin/$svc ./services/$svc/...
-        go test ./services/$svc/...
-      done
-  needs:
-    - job: analyze
-      artifacts: true
-```
-
-A complete pipeline is available at [`.gitlab-ci.yml`](.gitlab-ci.yml).
-
 ### How the baseline is persisted
 
-| Platform | Mechanism | Key |
-|---|---|---|
-| GitHub Actions | `actions/upload-artifact` / `actions/download-artifact` | artifact name `buildgraph-baseline` |
-| GitLab CI | `cache` | `buildgraph-baseline-$CI_COMMIT_REF_SLUG` |
-
-Each branch maintains its own baseline so feature branches don't interfere with each other.
+The baseline artifact is uploaded at the end of each successful run and downloaded at the start of the next. Each branch gets its own artifact (`buildgraph-baseline`) so feature branches don't interfere with each other. The first run is always safe — if no artifact exists yet, BuildGraph treats all functions as new and builds all services.
 
 ### First run behaviour
 
