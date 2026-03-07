@@ -57,14 +57,14 @@ func parseProject(
 		log.Printf("Warning: could not extract external deps: %v", err)
 		extDeps = map[string]string{}
 		extHash = ""
-		err = nil
+		err = nil //nolint:ineffassign
 	}
 
 	sourceHashes, err = a.ComputeSourceHashes()
 	if err != nil {
 		log.Printf("Warning: could not compute source hashes: %v", err)
 		sourceHashes = map[string]string{}
-		err = nil
+		err = nil //nolint:ineffassign
 	}
 
 	return

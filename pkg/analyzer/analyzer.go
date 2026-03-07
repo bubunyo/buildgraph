@@ -389,7 +389,9 @@ func (a *Analyzer) astHash(fn *types.Function) (string, error) {
 	var buf bytes.Buffer
 	// Use the SSA textual representation as a canonical form — it strips
 	// comments, normalises whitespace, and is stable across formatting changes.
-	ssaFn.WriteTo(&buf)
+	if _, err := ssaFn.WriteTo(&buf); err != nil {
+		return "", fmt.Errorf("serialising SSA for %s: %w", ssaFn.Name(), err)
+	}
 
 	h := sha256.Sum256(buf.Bytes())
 	return fmt.Sprintf("sha256:%x", h), nil
