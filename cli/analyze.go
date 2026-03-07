@@ -5,12 +5,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/bubunyo/buildgraph/pkg/diff"
 	"github.com/bubunyo/buildgraph/pkg/impact"
 	"github.com/bubunyo/buildgraph/pkg/storage"
 	"github.com/bubunyo/buildgraph/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 var analyzeCmd = &cobra.Command{

@@ -49,7 +49,7 @@ jobs:
         continue-on-error: true
 
       - name: Install buildgraph
-        run: go build -o /usr/local/bin/buildgraph ./cmd/main.go
+        run: go install github.com/bubunyo/buildgraph/cmd@latest
 
       - name: Run BuildGraph analysis
         id: buildgraph

@@ -171,15 +171,26 @@ Commit `buildgraph.yaml`.
 
 ## CI integration
 
+BuildGraph slots into any CI pipeline as two logical phases:
+
+1. **Analyze** — compare the current call graph against the stored baseline, emit the list of services to build
+2. **Build** — fan out over only those services
+
+The baseline is persisted between runs using your CI's artifact or cache system. The first run (no baseline yet) is always safe — BuildGraph treats every function as new and builds all services.
+
 ### GitHub Actions
+
+The pattern uses job outputs to pass the service list from `analyze` to a matrix `build` job.
 
 ```yaml
 jobs:
+  # ── 1. Analyze ─────────────────────────────────────────────────────────────
   analyze:
     runs-on: ubuntu-latest
     outputs:
       services: ${{ steps.buildgraph.outputs.services }}
       has_changes: ${{ steps.buildgraph.outputs.has_changes }}
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -190,25 +201,34 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Restore the baseline from the last successful run.
+      # continue-on-error: true so the first run (no artifact yet) still works.
       - name: Download previous baseline
         uses: actions/download-artifact@v4
         with:
           name: buildgraph-baseline
           path: .buildgraph
-        continue-on-error: true  # first run has no artifact yet
+        continue-on-error: true
 
       - name: Install buildgraph
-        run: go install github.com/bubunyo/buildgraph/cmd/buildgraph@latest
+        run: go install github.com/bubunyo/buildgraph/cmd@latest
 
       - name: Analyze
         id: buildgraph
         run: |
           buildgraph analyze --format json --output impact.json
-          HAS_CHANGES=$(jq -r '.has_changes' impact.json)
-          SERVICES=$(jq -c '.impact.services_to_build' impact.json)
-          echo "has_changes=${HAS_CHANGES}" >> "$GITHUB_OUTPUT"
-          echo "services=${SERVICES}"       >> "$GITHUB_OUTPUT"
 
+          HAS_CHANGES=$(jq -r '.has_changes' impact.json)
+          echo "has_changes=${HAS_CHANGES}" >> "$GITHUB_OUTPUT"
+
+          if [ "${HAS_CHANGES}" = "true" ]; then
+            SERVICES=$(jq -c '.impact.services_to_build' impact.json)
+          else
+            SERVICES='[]'
+          fi
+          echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
+
+      # Save a fresh baseline so the next run can diff against it.
       - name: Generate new baseline
         if: success()
         run: buildgraph generate
@@ -220,28 +240,96 @@ jobs:
           path: .buildgraph/baseline.json
           retention-days: 90
 
+  # ── 2. Build only affected services ────────────────────────────────────────
   build:
     needs: analyze
     if: needs.analyze.outputs.has_changes == 'true' && needs.analyze.outputs.services != '[]'
+    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service: ${{ fromJson(needs.analyze.outputs.services) }}
-    runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-      - run: go build -o bin/${{ matrix.service }} ./services/${{ matrix.service }}/...
-      - run: go test ./services/${{ matrix.service }}/...
+
+      - name: Build ${{ matrix.service }}
+        run: go build -o bin/${{ matrix.service }} ./services/${{ matrix.service }}/...
+
+      - name: Test ${{ matrix.service }}
+        run: go test ./services/${{ matrix.service }}/...
 ```
 
-A complete workflow is available at [`.github/workflows/buildgraph.yml`](.github/workflows/buildgraph.yml).
+A ready-to-use workflow is available at [`.github/workflows/buildgraph.yml`](.github/workflows/buildgraph.yml).
 
 ### GitLab CI
 
-A complete pipeline is available at [`.gitlab-ci.yml`](.gitlab-ci.yml). It uses a branch-keyed cache for the baseline and exports `SERVICES_TO_BUILD` as a dotenv artifact for downstream jobs.
+The pattern uses a branch-keyed cache to persist the baseline and a dotenv artifact to pass the service list to downstream jobs.
+
+```yaml
+stages:
+  - analyze
+  - build
+
+analyze:
+  stage: analyze
+  image: golang:1.24
+  cache:
+    key: buildgraph-baseline-$CI_COMMIT_REF_SLUG
+    paths:
+      - .buildgraph/
+  script:
+    - go install github.com/bubunyo/buildgraph/cmd@latest
+    - buildgraph analyze --format json --output impact.json || true
+    - |
+      HAS_CHANGES=$(jq -r '.has_changes' impact.json)
+      SERVICES=$(jq -r '.impact.services_to_build | join(" ")' impact.json)
+      echo "HAS_CHANGES=${HAS_CHANGES}" >> analyze.env
+      echo "SERVICES_TO_BUILD=${SERVICES}" >> analyze.env
+    - buildgraph generate
+  artifacts:
+    reports:
+      dotenv: analyze.env
+    paths:
+      - impact.json
+    expire_in: 7 days
+
+build:
+  stage: build
+  image: golang:1.24
+  rules:
+    - if: $HAS_CHANGES == "true"
+  script:
+    - |
+      for svc in $SERVICES_TO_BUILD; do
+        echo "Building $svc..."
+        go build -o bin/$svc ./services/$svc/...
+        go test ./services/$svc/...
+      done
+  needs:
+    - job: analyze
+      artifacts: true
+```
+
+A complete pipeline is available at [`.gitlab-ci.yml`](.gitlab-ci.yml).
+
+### How the baseline is persisted
+
+| Platform | Mechanism | Key |
+|---|---|---|
+| GitHub Actions | `actions/upload-artifact` / `actions/download-artifact` | artifact name `buildgraph-baseline` |
+| GitLab CI | `cache` | `buildgraph-baseline-$CI_COMMIT_REF_SLUG` |
+
+Each branch maintains its own baseline so feature branches don't interfere with each other.
+
+### First run behaviour
+
+On the very first run there is no baseline yet. BuildGraph treats all functions as new and returns all services in `services_to_build`. This is the safe default — nothing is skipped on a cold start.
 
 ## How it works
 
@@ -285,7 +373,14 @@ On each run, BuildGraph hashes every loaded `.go` file and stores the results in
 buildgraph/
 ├── buildgraph.yaml              # Config (created by `buildgraph init`)
 ├── cmd/
-│   └── main.go                  # CLI entry point (cobra + viper)
+│   └── main.go                  # Binary entry point — calls cli.Execute()
+├── cli/
+│   ├── root.go                  # Cobra root command, viper config wiring
+│   ├── analyze.go               # `buildgraph analyze` subcommand
+│   ├── generate.go              # `buildgraph generate` subcommand
+│   ├── init.go                  # `buildgraph init` subcommand
+│   ├── output.go                # JSON and text output formatters
+│   └── pipeline.go              # Shared analysis pipeline
 └── pkg/
     ├── analyzer/
     │   ├── analyzer.go           # Package loading, CHA call graph, hashing
