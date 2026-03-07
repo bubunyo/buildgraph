@@ -180,13 +180,7 @@ The baseline is persisted between runs using your CI's artifact or cache system.
 
 ### GitHub Actions
 
-The easiest way to integrate is with the official [`bubunyo/buildgraph-action`](https://github.com/bubunyo/buildgraph-action). Add it as a git submodule so the action is resolved locally from your checkout:
-
-```bash
-git submodule add git@github.com:bubunyo/buildgraph-action.git action
-```
-
-Then reference it via the local path in your workflow. It handles install, analyze, baseline persistence, and generate in a single step.
+The easiest way to integrate is with the official [`bubunyo/buildgraph-action`](https://github.com/bubunyo/buildgraph-action). It handles install, analyze, baseline persistence, and generate in a single step.
 
 ```yaml
 jobs:
@@ -201,11 +195,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: true   # populate the action/ submodule
 
       - name: Run BuildGraph
         id: buildgraph
-        uses: ./action       # resolves to the checked-out submodule
+        uses: bubunyo/buildgraph-action@v0.0.0-alpha
 
   # ── 2. Build only affected services ────────────────────────────────────────
   build:
