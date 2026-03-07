@@ -198,7 +198,7 @@ jobs:
 
       - name: Run BuildGraph
         id: buildgraph
-        uses: bubunyo/buildgraph-action@v1
+        uses: bubunyo/buildgraph-action@v0.0.0-alpha
 
   # ── 2. Build only affected services ────────────────────────────────────────
   build:
