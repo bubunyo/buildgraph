@@ -267,38 +267,6 @@ On each run, BuildGraph hashes every loaded `.go` file and stores the results in
 | External dependency version bumped in `go.mod` | Rebuild of all services that transitively call into that package |
 | No baseline (first run) | All services built |
 
-## Project structure
-
-```
-buildgraph/
-├── cmd/
-│   └── main.go                  # Binary entry point — calls cli.Execute()
-├── cli/
-│   ├── root.go                  # Cobra root command, viper config wiring
-│   ├── analyze.go               # `buildgraph analyze` subcommand
-│   ├── generate.go              # `buildgraph generate` subcommand
-│   ├── init.go                  # `buildgraph init` subcommand
-│   ├── output.go                # JSON and text output formatters
-│   ├── output_test.go           # Output formatter tests
-│   └── pipeline.go              # Shared analysis pipeline
-├── action/                      # GitHub Action (git submodule → bubunyo/buildgraph-action)
-│   └── action.yml
-└── pkg/
-    ├── analyzer/
-    │   ├── analyzer.go           # Package loading, CHA call graph, hashing
-    │   └── gomod.go              # go.mod parsing and require-block hashing
-    ├── config/
-    │   └── config.go             # Config struct and defaults
-    ├── diff/
-    │   └── detector.go           # Change detection
-    ├── impact/
-    │   └── impact.go             # BFS impact propagation, service grouping
-    ├── storage/
-    │   └── storage.go            # Baseline JSON read/write
-    └── types/
-        └── types.go              # Shared data structures
-```
-
 ## License
 
 MIT
