@@ -64,11 +64,7 @@ func initConfig() {
 	viper.SetDefault("exclude.patterns", defaults.Exclude.Patterns)
 
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			if !os.IsNotExist(err) {
-				log.Fatalf("error reading config file %s: %v", cfgFile, err)
-			}
-		}
+		log.Fatalf("error reading config file %s: %v", cfgFile, err)
 	}
 }
 

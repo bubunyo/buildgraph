@@ -6,31 +6,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/bubunyo/buildgraph/pkg/types"
 )
 
 func TestNew(t *testing.T) {
-	s := New()
-	if s == nil {
-		t.Fatal("expected non-nil Storage")
-	}
+	assert.NotNil(t, New())
 }
 
 func TestLoadBaseline_MissingFile_ReturnsNil(t *testing.T) {
 	s := New()
 	baseline, err := s.LoadBaseline("/nonexistent/path/baseline.json")
-	if err != nil {
-		t.Fatalf("expected nil error for missing file, got: %v", err)
-	}
-	if baseline != nil {
-		t.Fatal("expected nil baseline for missing file")
-	}
+	require.NoError(t, err)
+	assert.Nil(t, baseline)
 }
 
 func TestLoadBaseline_ValidFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "baseline.json")
-
+	path := filepath.Join(t.TempDir(), "baseline.json")
 	want := &types.Baseline{
 		Version:    "1.0",
 		ModulePath: "github.com/example/repo",
@@ -38,47 +32,26 @@ func TestLoadBaseline_ValidFile(t *testing.T) {
 	}
 
 	s := New()
-	if err := s.SaveBaseline(want, path); err != nil {
-		t.Fatalf("SaveBaseline: %v", err)
-	}
+	require.NoError(t, s.SaveBaseline(want, path))
 
 	got, err := s.LoadBaseline(path)
-	if err != nil {
-		t.Fatalf("LoadBaseline: %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil baseline")
-	}
-	if got.Version != want.Version {
-		t.Errorf("Version: got %q, want %q", got.Version, want.Version)
-	}
-	if got.ModulePath != want.ModulePath {
-		t.Errorf("ModulePath: got %q, want %q", got.ModulePath, want.ModulePath)
-	}
-	if got.Commit != want.Commit {
-		t.Errorf("Commit: got %q, want %q", got.Commit, want.Commit)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, want.Version, got.Version)
+	assert.Equal(t, want.ModulePath, got.ModulePath)
+	assert.Equal(t, want.Commit, got.Commit)
 }
 
 func TestLoadBaseline_MalformedJSON_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "baseline.json")
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	require.NoError(t, os.WriteFile(path, []byte("not valid json {{{"), 0644))
 
-	if err := os.WriteFile(path, []byte("not valid json {{{"), 0644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	s := New()
-	_, err := s.LoadBaseline(path)
-	if err == nil {
-		t.Fatal("expected error for malformed JSON, got nil")
-	}
+	_, err := New().LoadBaseline(path)
+	assert.Error(t, err)
 }
 
 func TestSaveBaseline_WritesFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "baseline.json")
-
+	path := filepath.Join(t.TempDir(), "baseline.json")
 	baseline := &types.Baseline{
 		Version:     "1.0",
 		GeneratedAt: time.Now(),
@@ -86,40 +59,24 @@ func TestSaveBaseline_WritesFile(t *testing.T) {
 		ModulePath:  "github.com/example/repo",
 	}
 
-	s := New()
-	if err := s.SaveBaseline(baseline, path); err != nil {
-		t.Fatalf("SaveBaseline: %v", err)
-	}
+	require.NoError(t, New().SaveBaseline(baseline, path))
 
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("expected non-empty file")
-	}
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
 }
 
 func TestSaveBaseline_CreatesParentDirs(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "nested", "deep", "baseline.json")
+	path := filepath.Join(t.TempDir(), "nested", "deep", "baseline.json")
 
-	baseline := &types.Baseline{Version: "1.0"}
+	require.NoError(t, New().SaveBaseline(&types.Baseline{Version: "1.0"}, path))
 
-	s := New()
-	if err := s.SaveBaseline(baseline, path); err != nil {
-		t.Fatalf("SaveBaseline: %v", err)
-	}
-
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("expected file to exist: %v", err)
-	}
+	_, err := os.Stat(path)
+	assert.NoError(t, err)
 }
 
 func TestSaveAndLoad_RoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "baseline.json")
-
+	path := filepath.Join(t.TempDir(), "baseline.json")
 	want := &types.Baseline{
 		Version:    "1.0",
 		Commit:     "cafebabe",
@@ -134,28 +91,14 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	}
 
 	s := New()
-	if err := s.SaveBaseline(want, path); err != nil {
-		t.Fatalf("SaveBaseline: %v", err)
-	}
+	require.NoError(t, s.SaveBaseline(want, path))
 
 	got, err := s.LoadBaseline(path)
-	if err != nil {
-		t.Fatalf("LoadBaseline: %v", err)
-	}
+	require.NoError(t, err)
 
-	if got.Commit != want.Commit {
-		t.Errorf("Commit: got %q want %q", got.Commit, want.Commit)
-	}
-	if got.GoVersion != want.GoVersion {
-		t.Errorf("GoVersion: got %q want %q", got.GoVersion, want.GoVersion)
-	}
-	if got.ExternalDepsHash != want.ExternalDepsHash {
-		t.Errorf("ExternalDepsHash: got %q want %q", got.ExternalDepsHash, want.ExternalDepsHash)
-	}
-	if got.FunctionHashes["pkg.Foo"].ASTHash != want.FunctionHashes["pkg.Foo"].ASTHash {
-		t.Errorf("FunctionHashes[pkg.Foo].ASTHash mismatch")
-	}
-	if got.SourceHashes["foo.go"] != want.SourceHashes["foo.go"] {
-		t.Errorf("SourceHashes[foo.go] mismatch")
-	}
+	assert.Equal(t, want.Commit, got.Commit)
+	assert.Equal(t, want.GoVersion, got.GoVersion)
+	assert.Equal(t, want.ExternalDepsHash, got.ExternalDepsHash)
+	assert.Equal(t, want.FunctionHashes["pkg.Foo"].ASTHash, got.FunctionHashes["pkg.Foo"].ASTHash)
+	assert.Equal(t, want.SourceHashes["foo.go"], got.SourceHashes["foo.go"])
 }

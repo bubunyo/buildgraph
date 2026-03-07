@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/bubunyo/buildgraph/pkg/analyzer"
@@ -72,13 +73,14 @@ func parseProject(
 
 // detectRootModule reads the module path from the go.mod in rootPath.
 func detectRootModule(rootPath string) (string, error) {
-	content, err := os.ReadFile(rootPath + "/go.mod")
+	content, err := os.ReadFile(filepath.Join(rootPath, "go.mod"))
 	if err != nil {
 		return "", err
 	}
-	for _, line := range strings.Split(string(content), "\n") {
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
+	for line := range strings.SplitSeq(string(content), "\n") {
+		after, found := strings.CutPrefix(line, "module ")
+		if found {
+			return strings.TrimSpace(after), nil
 		}
 	}
 	return "", fmt.Errorf("module directive not found in go.mod")

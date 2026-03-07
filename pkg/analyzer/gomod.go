@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -84,13 +85,7 @@ func HashGoMod(gomod *GoMod) string {
 	}
 
 	// Simple deterministic sort
-	for i := 0; i < len(entries); i++ {
-		for j := i + 1; j < len(entries); j++ {
-			if entries[i] > entries[j] {
-				entries[i], entries[j] = entries[j], entries[i]
-			}
-		}
-	}
+	slices.Sort(entries)
 
 	combined := strings.Join(entries, "\n")
 	h := sha256.Sum256([]byte(combined))

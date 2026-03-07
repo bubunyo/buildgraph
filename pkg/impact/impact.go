@@ -1,6 +1,7 @@
 package impact
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -80,14 +81,7 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 		owner := a.functionOwners[funcName]
 		if owner != "" {
 			// Check if already in affected
-			found := false
-			for _, f := range impact.AffectedFunctions[owner] {
-				if f == funcName {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !slices.Contains(impact.AffectedFunctions[owner], funcName) {
 				impact.AffectedFunctions[owner] = append(impact.AffectedFunctions[owner], funcName)
 				impact.AffectReasons[owner] = append(impact.AffectReasons[owner], "directly_changed")
 			}

@@ -17,6 +17,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/callgraph"
@@ -469,12 +470,7 @@ func hasDep(deps []types.Dependency, fullName string) bool {
 }
 
 func hasString(ss []string, s string) bool {
-	for _, v := range ss {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ss, s)
 }
 
 func transitiveHash(fn *types.Function, all map[string]*types.Function) string {
