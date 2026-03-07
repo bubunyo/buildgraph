@@ -74,6 +74,23 @@ exclude:
 	}
 }
 
+func TestLoad_UnreadableFile_ReturnsError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("cannot test unreadable files as root")
+	}
+
+	path := filepath.Join(t.TempDir(), "buildgraph.yaml")
+	if err := os.WriteFile(path, []byte("services:\n  - apps\n"), 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0644) })
+
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for unreadable file, got nil")
+	}
+}
+
 func TestLoad_MalformedFile_ReturnsError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "buildgraph.yaml")
 	if err := os.WriteFile(path, []byte("services: [unclosed"), 0644); err != nil {

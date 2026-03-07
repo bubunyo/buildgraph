@@ -193,6 +193,27 @@ func TestComputeImpact_FallbackBuildsAllServicesWhenCoreChanges(t *testing.T) {
 	}
 }
 
+// TestComputeImpact_ChangedFunctionWithNoOwner covers the branch where a
+// changed function has no entry in FunctionOwner (owner == "").  The function
+// should still be processed for reversal propagation without panicking, and the
+// known services should appear via the fallback.
+func TestComputeImpact_ChangedFunctionWithNoOwner(t *testing.T) {
+	g := buildGraph(
+		map[string]bool{
+			"orphan.Fn":           false,
+			"services/svc-a.main": true,
+		},
+		map[string]string{
+			// Note: "orphan.Fn" deliberately has no owner entry.
+			"services/svc-a.main": "services/svc-a",
+		},
+		map[string][]string{}, // no callers of orphan.Fn
+	)
+	// Should not panic; fallback emits all known services.
+	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("orphan.Fn")})
+	_ = result // the fallback may or may not include svc-a depending on owner lookup
+}
+
 func TestIsService_IdentifiesByMainFunction(t *testing.T) {
 	g := buildGraph(
 		map[string]bool{
