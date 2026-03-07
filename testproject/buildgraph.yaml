@@ -1,0 +1,19 @@
+# BuildGraph configuration
+# https://github.com/bubunyo/buildgraph
+
+# Directories whose immediate subdirectories are deployable services.
+# Each subdirectory must contain a main package.
+services:
+  - services
+
+# Files and directories to skip during analysis.
+exclude:
+  skip_vendor: true
+  skip_tests: true
+  patterns:
+    - "**/*_gen.go"
+    - "**/mock_*.go"
+
+# Path where the baseline snapshot is stored.
+# Add .buildgraph/ to your .gitignore.
+baseline: .buildgraph/baseline.json

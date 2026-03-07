@@ -1,0 +1,112 @@
+# BuildGraph CI — intelligent selective rebuild for Go monorepos.
+#
+# Pipeline stages:
+#   analyze  → runs buildgraph, determines which services changed
+#   build    → builds only the affected services
+
+stages:
+  - analyze
+  - build
+
+variables:
+  GO_VERSION: "1.24"
+
+# ── 1. Analyze ────────────────────────────────────────────────────────────────
+buildgraph-analyze:
+  stage: analyze
+  image: golang:${GO_VERSION}
+  cache:
+    key: "buildgraph-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .buildgraph/
+    policy: pull-push
+  before_script:
+    - go build -o /usr/local/bin/buildgraph ./cmd/main.go
+  script:
+    - |
+      mkdir -p .buildgraph
+
+      buildgraph analyze --format json --output impact.json || true
+
+      HAS_CHANGES=$(jq -r '.has_changes' impact.json)
+      SERVICES=$(jq -r '.impact.services_to_build | join(",")' impact.json)
+
+      echo "has_changes=${HAS_CHANGES}"
+      echo "services_to_build=${SERVICES}"
+
+      buildgraph generate
+
+      echo "HAS_CHANGES=${HAS_CHANGES}" >> build.env
+      echo "SERVICES_TO_BUILD=${SERVICES}" >> build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+    paths:
+      - impact.json
+    when: always
+    expire_in: 7 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH'
+
+# ── 2. Build affected services ─────────────────────────────────────────────────
+buildgraph-build:
+  stage: build
+  image: golang:${GO_VERSION}
+  needs:
+    - job: buildgraph-analyze
+      artifacts: true
+  parallel:
+    matrix:
+      - SERVICE: ["__placeholder__"]
+  script:
+    - |
+      if [ "${SERVICE}" = "__placeholder__" ]; then
+        echo "No dynamic matrix — see comments in .gitlab-ci.yml"
+        exit 0
+      fi
+
+      if echo ",${SERVICES_TO_BUILD}," | grep -q ",${SERVICE},"; then
+        echo "Building ${SERVICE}…"
+        go build -v -o bin/${SERVICE} ./services/${SERVICE}/...
+        go test -v ./services/${SERVICE}/...
+      else
+        echo "Skipping ${SERVICE} (not affected)"
+      fi
+  rules:
+    - if: '$HAS_CHANGES == "true" && $SERVICES_TO_BUILD != ""'
+    - when: never
+
+# ── Alternative: dynamic child pipeline ─────────────────────────────────────
+# For large monorepos replace buildgraph-build above with a trigger job that
+# generates a child pipeline YAML on the fly:
+#
+# buildgraph-build-dynamic:
+#   stage: build
+#   needs:
+#     - job: buildgraph-analyze
+#       artifacts: true
+#   script:
+#     - |
+#       cat > child-pipeline.yml <<EOF
+#       stages: [build]
+#       EOF
+#       for svc in $(echo "${SERVICES_TO_BUILD}" | tr ',' ' '); do
+#         cat >> child-pipeline.yml <<EOF
+#       build-${svc}:
+#         stage: build
+#         image: golang:${GO_VERSION}
+#         script:
+#           - go build -o bin/${svc} ./services/${svc}/...
+#           - go test ./services/${svc}/...
+#       EOF
+#       done
+#   trigger:
+#     include:
+#       - artifact: child-pipeline.yml
+#         job: buildgraph-build-dynamic
+#     strategy: depend
+#   rules:
+#     - if: '$HAS_CHANGES == "true" && $SERVICES_TO_BUILD != ""'
+#     - when: never

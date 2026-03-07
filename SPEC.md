@@ -702,95 +702,75 @@ Steps:
 buildgraph [global flags] <command> [command flags]
 ```
 
+All config file fields can be overridden by flags.  Priority order (highest to lowest):
+
+1. CLI flag
+2. Environment variable (`BUILDGRAPH_<KEY>`)
+3. `buildgraph.yaml`
+4. Built-in default
+
 ### Commands
 
-#### 1. `analyze` - Run impact analysis
+#### 1. `analyze` - Detect which services need to be rebuilt
 
 ```bash
 buildgraph analyze [flags]
 
 Flags:
-  -o, --output string       Output file (default: stdout)
-  -f, --format string       Output format: json, yaml, text (default: json)
-  -c, --config string       Config file path (default: .buildgraph/config.yaml)
-  -v, --verbose             Include debug information
-  -b, --baseline string     Baseline file to compare against (default: .buildgraph/cache/baseline.json)
-      --no-cache           Skip loading baseline, compute fresh
-      --commit string       Git commit to analyze (default: HEAD)
+  -f, --format string     Output format: json, text (default: json)
+  -o, --output string     Output file (default: stdout)
+  -v, --verbose           Include debug info in output
+      --no-cache          Ignore baseline, treat everything as new
+
+Global flags (also settable in buildgraph.yaml):
+      --config string     Config file path (default: buildgraph.yaml)
+      --services strings  Service directories (default: [services])
+      --baseline string   Baseline file path (default: .buildgraph/baseline.json)
+      --skip-vendor       Skip vendor/ directory (default: true)
+      --skip-tests        Skip *_test.go files (default: true)
 ```
 
 **Example:**
 ```bash
-# Analyze and output JSON
-buildgraph analyze -f json -o impact.json
+# Standard run — reads buildgraph.yaml, outputs JSON to stdout
+buildgraph analyze
 
-# Analyze with verbose debug info
-buildgraph analyze -v -f json
+# Output to file
+buildgraph analyze --format json --output impact.json
 
-# Force fresh analysis (ignore cache)
+# Override services directory for a non-standard layout
+buildgraph analyze --services apps
+
+# Force fresh analysis ignoring any stored baseline
 buildgraph analyze --no-cache
 ```
 
-#### 2. `generate` - Generate baseline/cache
+#### 2. `generate` - Save a new baseline snapshot
 
 ```bash
 buildgraph generate [flags]
 
 Flags:
-  -o, --output string       Output file (default: .buildgraph/cache/baseline.json)
-  -c, --config string       Config file path
-      --commit string       Git commit to generate for
+  -o, --output string     Output path for the baseline (overrides config)
 ```
 
 **Example:**
 ```bash
-# Generate baseline and save
-buildgraph generate -o .buildgraph/cache/baseline.json
+# Generate and save baseline (path from buildgraph.yaml or default)
+buildgraph generate
+
+# Save to a custom path
+buildgraph generate --output /tmp/baseline.json
 ```
 
-#### 3. `graph` - Generate visual call graph
+#### 3. `init` - Create a starter config file
 
 ```bash
-buildgraph graph [flags]
-
-Flags:
-  -o, --output string       Output file (default: stdout)
-  -f, --format string       Output format: dot, json, text (default: dot)
-      --service string      Only show graph for specific service
-      --depth int          Maximum depth to traverse (default: unlimited)
+buildgraph init
 ```
 
-**Example:**
-```bash
-# Generate DOT file for Graphviz
-buildgraph graph -o graph.dot
-
-# Show only service-a and its dependencies
-buildgraph graph --service service-a -o service-a.dot
-```
-
-#### 4. `serve` - Run as API server (optional)
-
-```bash
-buildgraph serve [flags]
-
-Flags:
-  -p, --port int           Port to listen on (default: 8080)
-  -c, --config string      Config file path
-```
-
-**Example:**
-```bash
-# Start API server
-buildgraph serve -p 9000
-```
-
-### Global Flags
-
-```bash
-  --log-level string    Log level: debug, info, warn, error (default: info)
-  --color               Enable colored output (default: auto-detect)
-```
+Writes a commented `buildgraph.yaml` in the current directory.
+Exits with an error if the file already exists.
 
 ### Output Formats
 
@@ -844,73 +824,42 @@ Services to build:
 
 ## Configuration
 
-### Default Configuration File
+### Config File
 
-Location: `.buildgraph/config.yaml`
+Location: `buildgraph.yaml` (repo root).  Created by `buildgraph init`.
 
 ```yaml
-# BuildGraph Configuration
+# BuildGraph configuration
 
-# Root module path (auto-detected if not specified)
-# module_path: "github.com/user/repo"
+# Directories whose immediate subdirectories are deployable services.
+# Each subdirectory must contain a main package.
+services:
+  - services
 
-# Directory structure
-directories:
-  # Where services are located (relative to project root)
-  services: "services"
-  
-  # Where core/shared modules are located
-  core: "core"
-  
-  # Additional directories to scan
-  # additional:
-  #   - "internal"
-  #   - "pkg"
-
-# Exclusion patterns
+# Files and directories to skip during analysis.
 exclude:
-  # Skip vendor directories
   skip_vendor: true
-  
-  # Skip test files
   skip_tests: true
-  
-  # Additional patterns to exclude
   patterns:
-    - "**/*_test.go"
-    - "**/.*"  # Skip hidden files
+    - "**/*_gen.go"
+    - "**/mock_*.go"
 
-# Output settings
-output:
-  # Default output format
-  format: "json"
-  
-  # Default output file
-  # file: ""
-  
-  # Include debug information in output
-  verbose: false
-
-# Cache settings
-cache:
-  # Enable caching
-  enabled: true
-  
-  # Cache directory (relative to project root)
-  directory: ".buildgraph/cache"
-  
-  # Include Go version in cache key
-  include_go_version: true
+# Path where the baseline snapshot is stored.
+# Add .buildgraph/ to your .gitignore.
+baseline: .buildgraph/baseline.json
 ```
 
 ### Environment Variables
 
+Every config key can be overridden via an environment variable of the form
+`BUILDGRAPH_<KEY>` (dots and dashes replaced with underscores, uppercased).
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BUILDGGRAPH_CONFIG` | Config file path | `.buildgraph/config.yaml` |
-| `BUILDGGRAPH_CACHE` | Cache directory | `.buildgraph/cache` |
-| `BUILDGGRAPH_VERBOSE` | Enable verbose output | `false` |
-| `BUILDGGRAPH_OUTPUT` | Output file | stdout |
+| `BUILDGRAPH_SERVICES` | Service directories | `services` |
+| `BUILDGRAPH_BASELINE` | Baseline file path | `.buildgraph/baseline.json` |
+| `BUILDGRAPH_EXCLUDE_SKIP_VENDOR` | Skip vendor/ | `true` |
+| `BUILDGRAPH_EXCLUDE_SKIP_TESTS` | Skip test files | `true` |
 
 ---
 
@@ -918,7 +867,7 @@ cache:
 
 ### Baseline File
 
-Location: `.buildgraph/cache/baseline.json`
+Location: `.buildgraph/baseline.json` (configurable via `baseline` key or `--baseline` flag)
 
 ```json
 {
@@ -1666,43 +1615,66 @@ func (e *ExternalDepTracker) DetectChanges() []string {
 ### Phase 1: Core Functionality ✅ COMPLETE
 
 - [x] Project setup with Go modules
-- [x] Basic
-- [x] Simple call graph AST parsing for functions building (direct calls only)
+- [x] Basic AST parsing for functions
+- [x] Simple call graph building (direct calls only)
 - [x] JSON baseline storage (generate command)
 - [x] Basic CLI with `analyze` command
 
-### Phase 2: Dependency Analysis ⚠️ PARTIAL
+### Phase 2: Dependency Analysis ✅ COMPLETE
 
 - [x] Resolve package imports to full paths
 - [x] Distinguish internal vs external dependencies
-- [ ] Extract external dependency versions from go.mod
+- [x] Extract external dependency versions from go.mod
 - [x] Build reverse index for impact analysis
 
-### Phase 3: Change Detection 📋 PENDING
+### Phase 3: Change Detection ✅ COMPLETE
 
 - [x] AST normalization and hashing
-- [ ] Transitive hash computation
-- [ ] External dependency change detection
-- [ ] Diff output with change reasons
+- [x] Transitive hash computation
+- [x] External dependency change detection
+- [x] Diff output with change reasons
 
-### Phase 4: Impact Analysis 📋 PENDING
+### Phase 4: Impact Analysis ✅ COMPLETE
 
-- [ ] Graph traversal for impact propagation
-- [ ] Service grouping and filtering (basic implementation)
+- [x] Graph traversal for impact propagation
+- [x] Service grouping and filtering
 - [x] Output formatting (JSON, YAML, text)
 
-### Phase 5: Optimization 📋 PENDING
+### Phase 5: Optimization ✅ COMPLETE
 
-- [ ] Incremental parsing (skip unchanged files)
-- [ ] Caching improvements
-- [ ] Parallel processing
+- [x] Source hash caching — `ComputeSourceHashes()` hashes every loaded `.go`
+  file; stored in `Baseline.SourceHashes`. On re-runs, unchanged files skip
+  AST re-hashing and reuse stored `HashInfo` values (fast-path in
+  `ComputeHashes`).
+- [x] `services_to_build` sorted for deterministic output
+- [ ] Parallel package loading (deferred — `go/packages` already parallelises
+  internally; manual worker pool adds complexity for marginal gain at current
+  scale)
+- [ ] Compressed/binary baseline storage (deferred — JSON is sufficient for
+  the test project; opt-in gzip can be added when baseline files exceed ~5 MB)
 
-### Phase 6: Integration 📋 PENDING
+### Phase 6: Integration ✅ COMPLETE
 
-- [ ] GitHub Actions integration examples
-- [ ] GitLab CI integration examples
-- [x] Makefile examples
+- [x] GitHub Actions workflow (`.github/workflows/buildgraph.yml`) — two-job
+  pipeline: `analyze` exports `services` JSON array; `build` fans out with a
+  matrix over affected services only
+- [x] GitLab CI workflow (`.gitlab-ci.yml`) — `analyze` stage exports
+  `SERVICES_TO_BUILD`; `build` stage uses `parallel:matrix`; dynamic child
+  pipeline template included as commented alternative
+- [x] Makefile examples (in SPEC.md)
 - [x] Documentation
+
+### Phase 7: CLI & Config Refactor ✅ COMPLETE
+
+- [x] Replaced `flag` package with `cobra` + `viper` (spf13)
+- [x] Config restructured: `services[]`, `exclude`, `baseline` only — no
+  redundant or speculative fields
+- [x] Config file moved to `buildgraph.yaml` at repo root
+- [x] All config fields overridable via CLI flag or `BUILDGRAPH_*` env var
+- [x] `.buildgraph/cache/baseline.json` flattened to `.buildgraph/baseline.json`
+- [x] `buildgraph init` command generates a starter `buildgraph.yaml`
+- [x] `storage.New()` simplified — no longer holds a cache directory; path is
+  always passed explicitly by the caller
 
 ---
 
@@ -1710,20 +1682,33 @@ func (e *ExternalDepTracker) DetectChanges() []string {
 
 ```
 buildgraph/
-├── SPEC.md                         # This specification
-├── cmd/buildgraph/
-│   ├── main.go                    # CLI entry point
-│   └── buildgraph                 # Compiled binary
+├── SPEC.md                              # This specification
+├── buildgraph.yaml                      # Config (created by `buildgraph init`)
+├── .github/
+│   └── workflows/
+│       └── buildgraph.yml              # GitHub Actions CI workflow
+├── .gitlab-ci.yml                      # GitLab CI workflow
+├── cmd/
+│   └── main.go                         # CLI entry point (cobra + viper)
 ├── pkg/
 │   ├── types/
-│   │   └── types.go               # Core data types
+│   │   └── types.go                    # Core data types
 │   ├── config/
-│   │   └── config.go              # Configuration loading
-│   └── analyzer/
-│       └── analyzer.go            # AST parsing & call graph builder
+│   │   └── config.go                   # Config struct + defaults
+│   ├── analyzer/
+│   │   ├── analyzer.go                 # CHA call graph builder + hash computation
+│   │   └── gomod.go                    # go.mod parser & external dep hashing
+│   ├── diff/
+│   │   └── detector.go                 # Change detection
+│   ├── impact/
+│   │   └── impact.go                   # Impact analysis (BFS, service grouping)
+│   └── storage/
+│       └── storage.go                  # Baseline JSON read/write
 ├── .buildgraph/
-│   └── cache/                     # Cache directory
-└── testproject/                   # Sample test project
+│   └── baseline.json                   # Generated — add .buildgraph/ to .gitignore
+└── testproject/                        # Sample test project
+    ├── go.mod                          # Single root module
+    ├── buildgraph.yaml                 # Created by `buildgraph init`
     ├── services/
     │   ├── service-a/
     │   └── service-b/

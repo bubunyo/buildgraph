@@ -46,15 +46,16 @@ type HashInfo struct {
 }
 
 type Baseline struct {
-	Version        string              `json:"version"`
-	GeneratedAt    time.Time           `json:"generated_at"`
-	Commit         string              `json:"commit"`
-	GoVersion      string              `json:"go_version"`
-	ModulePath     string              `json:"module_path"`
-	Graph          CallGraph           `json:"graph"`
-	FunctionHashes map[string]HashInfo `json:"function_hashes"`
-	ExternalDeps   map[string]string   `json:"external_deps"`
-	SourceHashes   map[string]string   `json:"source_hashes"`
+	Version          string              `json:"version"`
+	GeneratedAt      time.Time           `json:"generated_at"`
+	Commit           string              `json:"commit"`
+	GoVersion        string              `json:"go_version"`
+	ModulePath       string              `json:"module_path"`
+	Graph            CallGraph           `json:"graph"`
+	FunctionHashes   map[string]HashInfo `json:"function_hashes"`
+	ExternalDeps     map[string]string   `json:"external_deps"`      // pkg path -> version
+	ExternalDepsHash string              `json:"external_deps_hash"` // hash of entire go.mod require block
+	SourceHashes     map[string]string   `json:"source_hashes"`
 }
 
 type Change struct {

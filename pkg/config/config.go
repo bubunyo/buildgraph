@@ -6,70 +6,40 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Config is the in-memory representation of buildgraph.yaml.
+// Every field can be overridden by a CLI flag of the same name
+// (via viper's automatic flag-binding in cmd/).
 type Config struct {
-	ModulePath  string            `yaml:"module_path"`
-	Directories DirectoriesConfig `yaml:"directories"`
-	Exclude     ExcludeConfig     `yaml:"exclude"`
-	Output      OutputConfig      `yaml:"output"`
-	Cache       CacheConfig       `yaml:"cache"`
+	// Services is a list of directories whose immediate subdirectories are
+	// treated as deployable services.  Each subdirectory must contain a
+	// main package.  Defaults to ["services"].
+	Services []string `mapstructure:"services" yaml:"services"`
+
+	// Exclude controls which files and directories are skipped during analysis.
+	Exclude ExcludeConfig `mapstructure:"exclude" yaml:"exclude"`
+
+	// Baseline is the path (relative to the project root) where buildgraph
+	// reads and writes the baseline snapshot.
+	// Default: .buildgraph/baseline.json
+	Baseline string `mapstructure:"baseline" yaml:"baseline"`
 }
 
-type DirectoriesConfig struct {
-	Services   string   `yaml:"services"`
-	Core       string   `yaml:"core"`
-	Additional []string `yaml:"additional"`
-}
-
+// ExcludeConfig describes what to skip during package loading and analysis.
 type ExcludeConfig struct {
-	Patterns   []string `yaml:"patterns"`
-	SkipVendor bool     `yaml:"skip_vendor"`
-	SkipTests  bool     `yaml:"skip_tests"`
+	// SkipVendor skips the vendor/ directory. Default: true.
+	SkipVendor bool `mapstructure:"skip_vendor" yaml:"skip_vendor"`
+
+	// SkipTests skips *_test.go files. Default: true.
+	SkipTests bool `mapstructure:"skip_tests" yaml:"skip_tests"`
+
+	// Patterns is a list of glob patterns to exclude (e.g. "**/*_gen.go").
+	Patterns []string `mapstructure:"patterns" yaml:"patterns"`
 }
 
-type OutputConfig struct {
-	Format  string `yaml:"format"`
-	File    string `yaml:"file"`
-	Verbose bool   `yaml:"verbose"`
-}
-
-type CacheConfig struct {
-	Enabled          bool   `yaml:"enabled"`
-	Directory        string `yaml:"directory"`
-	IncludeGoVersion bool   `yaml:"include_go_version"`
-}
-
-func Default() *Config {
-	return &Config{
-		ModulePath: "",
-		Directories: DirectoriesConfig{
-			Services:   "services",
-			Core:       "core",
-			Additional: []string{},
-		},
-		Exclude: ExcludeConfig{
-			Patterns:   []string{"**/.*"},
-			SkipVendor: true,
-			SkipTests:  true,
-		},
-		Output: OutputConfig{
-			Format:  "json",
-			File:    "",
-			Verbose: false,
-		},
-		Cache: CacheConfig{
-			Enabled:          true,
-			Directory:        ".buildgraph/cache",
-			IncludeGoVersion: true,
-		},
-	}
-}
-
+// Load reads a YAML config file at path and merges it over the defaults.
+// If the file does not exist, the defaults are returned without error.
 func Load(path string) (*Config, error) {
 	cfg := Default()
-
-	if path == "" {
-		path = ".buildgraph/config.yaml"
-	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -82,10 +52,18 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
-
 	return cfg, nil
 }
 
-func (c *Config) Validate() error {
-	return nil
+// Default returns a Config with sensible defaults for a standard Go monorepo.
+func Default() *Config {
+	return &Config{
+		Services: []string{"services"},
+		Exclude: ExcludeConfig{
+			SkipVendor: true,
+			SkipTests:  true,
+			Patterns:   []string{"**/*_gen.go", "**/mock_*.go"},
+		},
+		Baseline: ".buildgraph/baseline.json",
+	}
 }

@@ -12,5 +12,5 @@ func Fetch() string {
 }
 
 func Transform(data string) string {
-	return fmt.Sprintf("processed: %s", data)
+	return fmt.Sprintf("processed and transformed: %s", data)
 }

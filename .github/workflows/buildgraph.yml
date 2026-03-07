@@ -1,0 +1,114 @@
+# BuildGraph CI — intelligent selective rebuild for Go monorepos.
+#
+# How it works:
+#   1. "analyze" job: downloads the last baseline, runs buildgraph, uploads a
+#      fresh baseline as an artifact, and exports the list of services that
+#      need to be rebuilt as a JSON array job output.
+#   2. "build" job: uses a matrix over that service list so only the affected
+#      services are built.
+#
+# Customize the `build` step inside the matrix job to suit your own build /
+# test / push commands.
+
+name: BuildGraph CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ── 1. Analyze ──────────────────────────────────────────────────────────────
+  analyze:
+    name: Analyze changed services
+    runs-on: ubuntu-latest
+    outputs:
+      # JSON array of service names, e.g. '["service-a","service-b"]'
+      services: ${{ steps.buildgraph.outputs.services }}
+      has_changes: ${{ steps.buildgraph.outputs.has_changes }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Download the baseline produced by the last successful run on this branch.
+      # continue-on-error: true so the first run (no artifact yet) still works.
+      - name: Download previous baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: buildgraph-baseline
+          path: .buildgraph
+        continue-on-error: true
+
+      - name: Install buildgraph
+        run: go build -o /usr/local/bin/buildgraph ./cmd/main.go
+
+      - name: Run BuildGraph analysis
+        id: buildgraph
+        run: |
+          buildgraph analyze --format json --output impact.json
+
+          HAS_CHANGES=$(jq -r '.has_changes' impact.json)
+          echo "has_changes=${HAS_CHANGES}" >> "$GITHUB_OUTPUT"
+
+          if [ "${HAS_CHANGES}" = "true" ]; then
+            SERVICES=$(jq -c '.impact.services_to_build' impact.json)
+          else
+            SERVICES='[]'
+          fi
+
+          echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
+          echo "Services to build: ${SERVICES}"
+
+      - name: Upload analysis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildgraph-impact
+          path: impact.json
+          retention-days: 7
+
+      - name: Generate and upload new baseline
+        if: success()
+        run: buildgraph generate
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: buildgraph-baseline
+          path: .buildgraph/baseline.json
+          retention-days: 90
+
+  # ── 2. Build affected services ───────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.service }}
+    needs: analyze
+    if: needs.analyze.outputs.has_changes == 'true' && needs.analyze.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.analyze.outputs.services) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # ── Customize this step to match your project layout ──
+      - name: Build ${{ matrix.service }}
+        run: go build -v -o bin/${{ matrix.service }} ./services/${{ matrix.service }}/...
+
+      - name: Test ${{ matrix.service }}
+        run: go test -v ./services/${{ matrix.service }}/...

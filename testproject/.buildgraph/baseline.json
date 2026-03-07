@@ -1,0 +1,302 @@
+{
+  "version": "1.0",
+  "generated_at": "2026-03-07T16:37:56.954428+01:00",
+  "commit": "7f06877b7034f2f5d047264c051f10a1ba2c608f",
+  "go_version": "go1.24.2",
+  "module_path": "github.com/bubunyo/buildgraph/testproject",
+  "graph": {
+    "nodes": {
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Fetch": {
+        "name": "Fetch",
+        "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-a.Fetch",
+        "package": "github.com/bubunyo/buildgraph/testproject/core/module-a",
+        "file": "core/module-a/foo.go",
+        "start_line": 10,
+        "end_line": 10,
+        "is_exported": true,
+        "is_main": false,
+        "ast_hash": "",
+        "transitive_hash": "",
+        "deps": null
+      },
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Process": {
+        "name": "Process",
+        "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-a.Process",
+        "package": "github.com/bubunyo/buildgraph/testproject/core/module-a",
+        "file": "core/module-a/foo.go",
+        "start_line": 5,
+        "end_line": 5,
+        "is_exported": true,
+        "is_main": false,
+        "ast_hash": "",
+        "transitive_hash": "",
+        "deps": [
+          {
+            "package": {
+              "path": "github.com/bubunyo/buildgraph/testproject/core/module-a",
+              "name": "module_a",
+              "version": "",
+              "module": "github.com/bubunyo/buildgraph/testproject/core/module-a"
+            },
+            "type": "internal",
+            "name": "Transform",
+            "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-a.Transform"
+          }
+        ]
+      },
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Transform": {
+        "name": "Transform",
+        "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-a.Transform",
+        "package": "github.com/bubunyo/buildgraph/testproject/core/module-a",
+        "file": "core/module-a/foo.go",
+        "start_line": 14,
+        "end_line": 14,
+        "is_exported": true,
+        "is_main": false,
+        "ast_hash": "",
+        "transitive_hash": "",
+        "deps": [
+          {
+            "package": {
+              "path": "fmt",
+              "name": "fmt",
+              "version": "",
+              "module": "fmt"
+            },
+            "type": "external",
+            "name": "Sprintf",
+            "full_name": "fmt.Sprintf"
+          }
+        ]
+      },
+      "github.com/bubunyo/buildgraph/testproject/core/module-b.Delete": {
+        "name": "Delete",
+        "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-b.Delete",
+        "package": "github.com/bubunyo/buildgraph/testproject/core/module-b",
+        "file": "core/module-b/bar.go",
+        "start_line": 10,
+        "end_line": 10,
+        "is_exported": true,
+        "is_main": false,
+        "ast_hash": "",
+        "transitive_hash": "",
+        "deps": [
+          {
+            "package": {
+              "path": "fmt",
+              "name": "fmt",
+              "version": "",
+              "module": "fmt"
+            },
+            "type": "external",
+            "name": "Println",
+            "full_name": "fmt.Println"
+          }
+        ]
+      },
+      "github.com/bubunyo/buildgraph/testproject/core/module-b.Save": {
+        "name": "Save",
+        "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-b.Save",
+        "package": "github.com/bubunyo/buildgraph/testproject/core/module-b",
+        "file": "core/module-b/bar.go",
+        "start_line": 5,
+        "end_line": 5,
+        "is_exported": true,
+        "is_main": false,
+        "ast_hash": "",
+        "transitive_hash": "",
+        "deps": [
+          {
+            "package": {
+              "path": "fmt",
+              "name": "fmt",
+              "version": "",
+              "module": "fmt"
+            },
+            "type": "external",
+            "name": "Println",
+            "full_name": "fmt.Println"
+          }
+        ]
+      },
+      "github.com/bubunyo/buildgraph/testproject/services/service-a.main": {
+        "name": "main",
+        "full_name": "github.com/bubunyo/buildgraph/testproject/services/service-a.main",
+        "package": "github.com/bubunyo/buildgraph/testproject/services/service-a",
+        "file": "services/service-a/main.go",
+        "start_line": 10,
+        "end_line": 10,
+        "is_exported": false,
+        "is_main": true,
+        "ast_hash": "",
+        "transitive_hash": "",
+        "deps": [
+          {
+            "package": {
+              "path": "fmt",
+              "name": "fmt",
+              "version": "",
+              "module": "fmt"
+            },
+            "type": "external",
+            "name": "Println",
+            "full_name": "fmt.Println"
+          },
+          {
+            "package": {
+              "path": "github.com/bubunyo/buildgraph/testproject/core/module-a",
+              "name": "module_a",
+              "version": "",
+              "module": "github.com/bubunyo/buildgraph/testproject/core/module-a"
+            },
+            "type": "internal",
+            "name": "Process",
+            "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-a.Process"
+          },
+          {
+            "package": {
+              "path": "github.com/bubunyo/buildgraph/testproject/core/module-b",
+              "name": "module_b",
+              "version": "",
+              "module": "github.com/bubunyo/buildgraph/testproject/core/module-b"
+            },
+            "type": "internal",
+            "name": "Save",
+            "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-b.Save"
+          }
+        ]
+      },
+      "github.com/bubunyo/buildgraph/testproject/services/service-b.main": {
+        "name": "main",
+        "full_name": "github.com/bubunyo/buildgraph/testproject/services/service-b.main",
+        "package": "github.com/bubunyo/buildgraph/testproject/services/service-b",
+        "file": "services/service-b/main.go",
+        "start_line": 9,
+        "end_line": 9,
+        "is_exported": false,
+        "is_main": true,
+        "ast_hash": "",
+        "transitive_hash": "",
+        "deps": [
+          {
+            "package": {
+              "path": "fmt",
+              "name": "fmt",
+              "version": "",
+              "module": "fmt"
+            },
+            "type": "external",
+            "name": "Println",
+            "full_name": "fmt.Println"
+          },
+          {
+            "package": {
+              "path": "github.com/bubunyo/buildgraph/testproject/core/module-a",
+              "name": "module_a",
+              "version": "",
+              "module": "github.com/bubunyo/buildgraph/testproject/core/module-a"
+            },
+            "type": "internal",
+            "name": "Fetch",
+            "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-a.Fetch"
+          },
+          {
+            "package": {
+              "path": "github.com/bubunyo/buildgraph/testproject/core/module-a",
+              "name": "module_a",
+              "version": "",
+              "module": "github.com/bubunyo/buildgraph/testproject/core/module-a"
+            },
+            "type": "internal",
+            "name": "Transform",
+            "full_name": "github.com/bubunyo/buildgraph/testproject/core/module-a.Transform"
+          }
+        ]
+      }
+    },
+    "reverse_index": {
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Fetch": [
+        "github.com/bubunyo/buildgraph/testproject/services/service-b.main"
+      ],
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Process": [
+        "github.com/bubunyo/buildgraph/testproject/services/service-a.main"
+      ],
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Transform": [
+        "github.com/bubunyo/buildgraph/testproject/services/service-b.main",
+        "github.com/bubunyo/buildgraph/testproject/core/module-a.Process"
+      ],
+      "github.com/bubunyo/buildgraph/testproject/core/module-b.Save": [
+        "github.com/bubunyo/buildgraph/testproject/services/service-a.main"
+      ]
+    },
+    "function_owner": {
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Fetch": "core/module-a",
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Process": "core/module-a",
+      "github.com/bubunyo/buildgraph/testproject/core/module-a.Transform": "core/module-a",
+      "github.com/bubunyo/buildgraph/testproject/core/module-b.Delete": "core/module-b",
+      "github.com/bubunyo/buildgraph/testproject/core/module-b.Save": "core/module-b",
+      "github.com/bubunyo/buildgraph/testproject/services/service-a.main": "services/service-a",
+      "github.com/bubunyo/buildgraph/testproject/services/service-b.main": "services/service-b"
+    }
+  },
+  "function_hashes": {
+    "github.com/bubunyo/buildgraph/testproject/core/module-a.Fetch": {
+      "ast_hash": "sha256:5327810cfd8a408b88efe27f692bf8e9bf2dfa04b305eeb318f69d30dceff7e3",
+      "transitive_hash": "sha256:bb4d99c46014d97034fb67690a66d43290fa35904e3613f4665d3bd61876373e",
+      "deps_hash": "",
+      "external_deps": null
+    },
+    "github.com/bubunyo/buildgraph/testproject/core/module-a.Process": {
+      "ast_hash": "sha256:d875a15f77128861bcaf64e487f4c1313363f8a3746f6f20fa05b285fe9758fc",
+      "transitive_hash": "sha256:c4a9866cb819111932045fbcca32e5e16dd256d02df6e09915a5bf5a57c7efcc",
+      "deps_hash": "",
+      "external_deps": null
+    },
+    "github.com/bubunyo/buildgraph/testproject/core/module-a.Transform": {
+      "ast_hash": "sha256:9eb1c193ecb1cd9466b59b73e568bfbe94a329dddc40618d0c4252771900436e",
+      "transitive_hash": "sha256:9d796685935eb3e31f60e7fc5329cccac208714a92b8127c1d0d85e2fbf3ace0",
+      "deps_hash": "",
+      "external_deps": [
+        "fmt"
+      ]
+    },
+    "github.com/bubunyo/buildgraph/testproject/core/module-b.Delete": {
+      "ast_hash": "sha256:2f493b90b3b1eccda25859e3e3b25c2042bba69fbf6c258a96d844262078851d",
+      "transitive_hash": "sha256:2e0f94d48b710de5db0de8cecb9cac3ac002ba88428d70d8848534eac7c0272c",
+      "deps_hash": "",
+      "external_deps": [
+        "fmt"
+      ]
+    },
+    "github.com/bubunyo/buildgraph/testproject/core/module-b.Save": {
+      "ast_hash": "sha256:936b0ee1277d02990e33da59e15c14e4a9cb1d708d410c8ccc4b267c46e229ad",
+      "transitive_hash": "sha256:d8c16d7c4469d04af6032207eac425cfeac079a97fc477a998131f70ad5b701b",
+      "deps_hash": "",
+      "external_deps": [
+        "fmt"
+      ]
+    },
+    "github.com/bubunyo/buildgraph/testproject/services/service-a.main": {
+      "ast_hash": "sha256:1a597aedbc5452adebf65614dd3e540a46c94ca959fad3d20a8702ec4b6ad934",
+      "transitive_hash": "sha256:f845f9cde7af38e09553571c2f1284da87b9123005fb9c51d1b6c45c4397281c",
+      "deps_hash": "",
+      "external_deps": [
+        "fmt"
+      ]
+    },
+    "github.com/bubunyo/buildgraph/testproject/services/service-b.main": {
+      "ast_hash": "sha256:9cee7f741285afcc51ac1c37c1e34fd3880420f417a3d374091911e1187b2a13",
+      "transitive_hash": "sha256:12bad9e597d8dd6c250994783344a2510e6125b958031625b7778beb2b2834bd",
+      "deps_hash": "",
+      "external_deps": [
+        "fmt"
+      ]
+    }
+  },
+  "external_deps": {},
+  "external_deps_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "source_hashes": {
+    "services/service-a/main.go": "sha256:5a8f8e2cb1a473badd1aa59209f140f27a7d91522baba1143fc76c6e6fef868b",
+    "services/service-b/main.go": "sha256:b6b95535130fa7c255e79eeaad1b1ad4f67a64ce59be39b33f3d6a2f7d17d79e"
+  }
+}
