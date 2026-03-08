@@ -45,7 +45,7 @@ func TestWriteOutput_JSON_ToStdout(t *testing.T) {
 		Impact:     types.Impact{ServicesToBuild: []string{}},
 	}
 	// Should not panic.
-	assert.NotPanics(t, func() { writeOutput(result, "json", "") })
+	assert.NotPanics(t, func() { writeOutput(result, nil, "json", "") })
 }
 
 func TestWriteOutput_Text_ToStdout(t *testing.T) {
@@ -53,7 +53,7 @@ func TestWriteOutput_Text_ToStdout(t *testing.T) {
 		HasChanges: false,
 		Impact:     types.Impact{ServicesToBuild: []string{}},
 	}
-	assert.NotPanics(t, func() { writeOutput(result, "text", "") })
+	assert.NotPanics(t, func() { writeOutput(result, nil, "text", "") })
 }
 
 func TestWriteOutput_JSON_ToFile(t *testing.T) {
@@ -65,7 +65,7 @@ func TestWriteOutput_JSON_ToFile(t *testing.T) {
 		Impact:        types.Impact{ServicesToBuild: []string{"service-a"}},
 	}
 
-	writeOutput(result, "json", path)
+	writeOutput(result, nil, "json", path)
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestWriteOutput_Text_ToFile(t *testing.T) {
 		Impact:        types.Impact{ServicesToBuild: []string{}},
 	}
 
-	writeOutput(result, "text", path)
+	writeOutput(result, nil, "text", path)
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestWriteOutput_UnknownFormat_FallsBackToJSON(t *testing.T) {
 		Impact:        types.Impact{ServicesToBuild: []string{}},
 	}
 
-	writeOutput(result, "unknown", path)
+	writeOutput(result, nil, "unknown", path)
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
