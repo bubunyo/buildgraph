@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"log"
 	"os"
 	"strings"
@@ -64,7 +65,12 @@ func initConfig() {
 	viper.SetDefault("exclude.patterns", defaults.Exclude.Patterns)
 
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		// When SetConfigFile is used, viper returns a plain *fs.PathError for
+		// a missing file — not viper.ConfigFileNotFoundError (which is only
+		// returned when searching via SetConfigName/AddConfigPath). Use
+		// errors.Is(err, os.ErrNotExist) to correctly catch the missing-file
+		// case and only fatal on genuine read errors (bad permissions, etc.).
+		if !errors.Is(err, os.ErrNotExist) {
 			log.Fatalf("error reading config file %s: %v", cfgFile, err)
 		}
 	}
