@@ -3,9 +3,9 @@ package module_a
 import "fmt"
 
 func Process(input string) string {
-	_ = 2
+	_ = 3
 	result := Transform(input)
-	fmt.Println("Syntetic change")
+	fmt.Println("Syntetic change 3")
 	return result
 }
 
