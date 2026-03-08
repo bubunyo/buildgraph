@@ -30,7 +30,7 @@ BuildGraph achieves this by:
 ## Installation
 
 ```bash
-go install github.com/bubunyo/buildgraph/cmd@latest
+go install github.com/bubunyo/buildgraph@latest
 ```
 
 Or build from source:
@@ -38,7 +38,7 @@ Or build from source:
 ```bash
 git clone https://github.com/bubunyo/buildgraph
 cd buildgraph
-go build -o buildgraph ./cmd
+go build -o buildgraph .
 ```
 
 **Requires Go 1.24+**
@@ -83,11 +83,14 @@ buildgraph generate --output /tmp/baseline.json
 Compares the current call graph against the stored baseline and outputs which services are affected.
 
 ```bash
-# JSON output (default)
+# Human-readable (default)
 buildgraph analyze
 
-# Human-readable
-buildgraph analyze --format text
+# JSON output
+buildgraph analyze --format json
+
+# Graphviz DOT — pipe into dot to render
+buildgraph analyze --format dot | dot -Tsvg -o impact.svg
 
 # Write to file
 buildgraph analyze --format json --output impact.json
@@ -112,9 +115,6 @@ buildgraph analyze --no-cache
     }
   ],
   "impact": {
-    "affected_functions": {
-      "services/service-a": ["github.com/your-org/repo/services/service-a.main"]
-    },
     "services_to_build": ["service-a"]
   }
 }
@@ -229,7 +229,7 @@ See [`bubunyo/buildgraph-action`](https://github.com/bubunyo/buildgraph-action) 
 
 ### How the baseline is persisted
 
-The baseline artifact is uploaded at the end of each successful run and downloaded at the start of the next. Each branch gets its own artifact (`buildgraph-baseline`) so feature branches don't interfere with each other. On the very first run no artifact exists yet — BuildGraph treats all functions as new and returns all services in `services_to_build`, so a cold start is always safe.
+The baseline artifact is uploaded at the end of each successful run and downloaded at the start of the next. Each branch gets its own artifact (e.g. `buildgraph-baseline-main`, `buildgraph-baseline-feature-foo`) so branches don't interfere with each other. On the very first run no artifact exists yet — BuildGraph treats all functions as new and returns all services in `services_to_build`, so a cold start is always safe.
 
 ## How it works
 
