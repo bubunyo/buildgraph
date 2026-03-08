@@ -70,10 +70,9 @@ type Change struct {
 }
 
 type Impact struct {
-	AffectedFunctions map[string][]string `json:"affected_functions"`
-	AffectReasons     map[string][]string `json:"affect_reasons"`
+	AffectedFunctions map[string][]string `json:"-"`
+	AffectReasons     map[string][]string `json:"-"`
 	ServicesToBuild   []string            `json:"services_to_build"`
-	Changes           []Change            `json:"changes"`
 }
 
 type DebugInfo struct {

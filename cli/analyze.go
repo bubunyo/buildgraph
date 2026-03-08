@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/bubunyo/buildgraph/pkg/diff"
@@ -21,7 +20,7 @@ and outputs which services are affected by the detected changes.`,
 }
 
 func init() {
-	analyzeCmd.Flags().StringP("format", "f", "json", "Output format: json, text")
+	analyzeCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	analyzeCmd.Flags().StringP("output", "o", "", "Output file (default: stdout)")
 	analyzeCmd.Flags().BoolP("verbose", "v", false, "Include debug info in output")
 	analyzeCmd.Flags().Bool("no-cache", false, "Ignore baseline, treat everything as new")
@@ -40,8 +39,6 @@ func runAnalyze(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("detecting root module: %w", err)
 	}
-
-	log.Printf("Analyzing project: %s", rootModule)
 
 	// Load baseline before parsing so unchanged functions can reuse stored hashes.
 	var previousBaseline *types.Baseline
@@ -91,11 +88,5 @@ func runAnalyze(cmd *cobra.Command, _ []string) error {
 	output, _ := cmd.Flags().GetString("output")
 	writeOutput(result, format, output)
 
-	if len(changes) > 0 {
-		log.Printf("Changes detected: %d", len(changes))
-		log.Printf("Services to build: %v", impactResult.ServicesToBuild)
-	} else {
-		log.Printf("No changes detected")
-	}
 	return nil
 }

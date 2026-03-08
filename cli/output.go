@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"strings"
@@ -22,13 +21,15 @@ func writeOutput(result *types.Result, format, outputPath string) {
 		var marshalErr error
 		output, marshalErr = json.MarshalIndent(result, "", "  ")
 		if marshalErr != nil {
-			log.Fatalf("failed to marshal result to JSON: %v", marshalErr)
+			fmt.Fprintf(os.Stderr, "failed to marshal result to JSON: %v\n", marshalErr)
+			os.Exit(1)
 		}
 	}
 
 	if outputPath != "" {
 		if err := os.WriteFile(outputPath, output, 0644); err != nil {
-			log.Fatalf("failed to write output: %v", err)
+			fmt.Fprintf(os.Stderr, "failed to write output: %v\n", err)
+			os.Exit(1)
 		}
 		return
 	}
@@ -45,7 +46,7 @@ func formatText(result *types.Result) string {
 	if len(result.Changes) > 0 {
 		fmt.Fprintf(sb, "Changes (%d):\n", len(result.Changes))
 		for _, c := range result.Changes {
-			fmt.Fprintf(sb, "  [%-20s] %s\n", c.Type, c.Function)
+			fmt.Fprintf(sb, "  [%s] %s\n", c.Type, c.Function)
 			if c.Reason != "" {
 				fmt.Fprintf(sb, "    reason : %s\n", c.Reason)
 			}
