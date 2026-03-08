@@ -43,13 +43,18 @@ type Analyzer struct {
 	pkgs    []*ssa.Package
 	cg      *callgraph.Graph
 	allPkgs []*packages.Package
+
+	// sourceHashCache memoizes SHA-256 digests of source files within a
+	// single analysis run to avoid redundant disk reads.
+	sourceHashCache map[string]string
 }
 
 func New(cfg *config.Config, rootModule, rootPath string) *Analyzer {
 	return &Analyzer{
-		cfg:        cfg,
-		rootModule: rootModule,
-		rootPath:   rootPath,
+		cfg:             cfg,
+		rootModule:      rootModule,
+		rootPath:        rootPath,
+		sourceHashCache: make(map[string]string),
 	}
 }
 
@@ -252,13 +257,10 @@ func (a *Analyzer) ComputeHashes(
 	return nil
 }
 
-// sourceHashCache is lazily populated by cachedSourceHash.
-var sourceHashCache = make(map[string]string)
-
 // cachedSourceHash returns the SHA-256 of the given file path, memoised for
-// the duration of the process.
+// the lifetime of this Analyzer instance.
 func (a *Analyzer) cachedSourceHash(relPath string) (string, bool) {
-	if h, ok := sourceHashCache[relPath]; ok {
+	if h, ok := a.sourceHashCache[relPath]; ok {
 		return h, true
 	}
 	absPath := filepath.Join(a.rootPath, relPath)
@@ -268,7 +270,7 @@ func (a *Analyzer) cachedSourceHash(relPath string) (string, bool) {
 	}
 	sum := sha256.Sum256(data)
 	h := fmt.Sprintf("sha256:%x", sum)
-	sourceHashCache[relPath] = h
+	a.sourceHashCache[relPath] = h
 	return h, true
 }
 
@@ -358,10 +360,12 @@ func (a *Analyzer) toDependency(fn *ssa.Function) types.Dependency {
 	key := funcKey(fn)
 	depType := "external"
 	pkgPath := ""
+	pkgName := ""
 	pkgVer := ""
 
 	if fn.Package() != nil {
 		pkgPath = fn.Package().Pkg.Path()
+		pkgName = fn.Package().Pkg.Name()
 		if a.isInternal(fn) {
 			depType = "internal"
 		}
@@ -373,7 +377,7 @@ func (a *Analyzer) toDependency(fn *ssa.Function) types.Dependency {
 		Type:     depType,
 		Package: types.Package{
 			Path:    pkgPath,
-			Name:    fn.Package().Pkg.Name(),
+			Name:    pkgName,
 			Version: pkgVer,
 			Module:  pkgPath,
 		},
@@ -486,13 +490,7 @@ func transitiveHash(fn *types.Function, all map[string]*types.Function) string {
 		}
 	}
 	// Deterministic sort.
-	for i := 0; i < len(parts); i++ {
-		for j := i + 1; j < len(parts); j++ {
-			if parts[i] > parts[j] {
-				parts[i], parts[j] = parts[j], parts[i]
-			}
-		}
-	}
+	slices.Sort(parts)
 	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return fmt.Sprintf("sha256:%x", h)
 }

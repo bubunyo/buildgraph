@@ -19,7 +19,11 @@ func writeOutput(result *types.Result, format, outputPath string) {
 	case "text":
 		output = []byte(formatText(result))
 	default:
-		output, _ = json.MarshalIndent(result, "", "  ")
+		var marshalErr error
+		output, marshalErr = json.MarshalIndent(result, "", "  ")
+		if marshalErr != nil {
+			log.Fatalf("failed to marshal result to JSON: %v", marshalErr)
+		}
 	}
 
 	if outputPath != "" {
