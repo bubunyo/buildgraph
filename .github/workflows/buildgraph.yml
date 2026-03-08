@@ -37,6 +37,9 @@ jobs:
       - name: Run BuildGraph
         id: buildgraph
         uses: ./action
+        with:
+          working-directory: testproject
+          go-version-file: testproject/go.mod
 
   # ── 2. Build affected services ───────────────────────────────────────────────
   build:
@@ -55,12 +58,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: testproject/go.mod
           cache: true
 
       # ── Customize this step to match your project layout ──
       - name: Build ${{ matrix.service }}
+        working-directory: testproject
         run: go build -v -o bin/${{ matrix.service }} ./services/${{ matrix.service }}/...
 
       - name: Test ${{ matrix.service }}
+        working-directory: testproject
         run: go test -v ./services/${{ matrix.service }}/...

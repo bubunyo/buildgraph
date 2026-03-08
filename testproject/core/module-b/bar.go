@@ -8,6 +8,6 @@ func Save(data string) error {
 }
 
 func Delete(id string) error {
-	fmt.Println("Deleting:", id)
+	fmt.Println("Deleting: ", id)
 	return nil
 }

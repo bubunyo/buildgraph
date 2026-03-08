@@ -4,6 +4,7 @@ import "fmt"
 
 func Process(input string) string {
 	result := Transform(input)
+	fmt.Println("Syntetic change")
 	return result
 }
 
