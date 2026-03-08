@@ -3,7 +3,7 @@ package module_a
 import "fmt"
 
 func Process(input string) string {
-	_ = 1
+	_ = 2
 	result := Transform(input)
 	fmt.Println("Syntetic change")
 	return result
