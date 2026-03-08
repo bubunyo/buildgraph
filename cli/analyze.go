@@ -20,7 +20,7 @@ and outputs which services are affected by the detected changes.`,
 }
 
 func init() {
-	analyzeCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
+	analyzeCmd.Flags().StringP("format", "f", "text", "Output format: text, json, dot")
 	analyzeCmd.Flags().StringP("output", "o", "", "Output file (default: stdout)")
 	analyzeCmd.Flags().BoolP("verbose", "v", false, "Include debug info in output")
 	analyzeCmd.Flags().Bool("no-cache", false, "Ignore baseline, treat everything as new")
@@ -86,7 +86,7 @@ func runAnalyze(cmd *cobra.Command, _ []string) error {
 
 	format, _ := cmd.Flags().GetString("format")
 	output, _ := cmd.Flags().GetString("output")
-	writeOutput(result, format, output)
+	writeOutput(result, graph, format, output)
 
 	return nil
 }
