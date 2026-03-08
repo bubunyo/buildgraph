@@ -4,7 +4,7 @@ package cli
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"os"
 	"strings"
 
@@ -71,7 +71,8 @@ func initConfig() {
 		// errors.Is(err, os.ErrNotExist) to correctly catch the missing-file
 		// case and only fatal on genuine read errors (bad permissions, etc.).
 		if !errors.Is(err, os.ErrNotExist) {
-			log.Fatalf("error reading config file %s: %v", cfgFile, err)
+			fmt.Fprintf(os.Stderr, "error reading config file %s: %v\n", cfgFile, err)
+			os.Exit(1)
 		}
 	}
 }
@@ -80,7 +81,8 @@ func initConfig() {
 func loadConfig() *config.Config {
 	cfg := config.Default()
 	if err := viper.Unmarshal(cfg); err != nil {
-		log.Fatalf("invalid configuration: %v", err)
+		fmt.Fprintf(os.Stderr, "invalid configuration: %v\n", err)
+		os.Exit(1)
 	}
 	if len(cfg.Services) == 0 {
 		cfg.Services = config.Default().Services

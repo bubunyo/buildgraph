@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,12 +29,12 @@ func parseProject(
 ) {
 	a := analyzer.New(cfg, rootModule, rootPath)
 
-	log.Printf("Loading packages…")
+	fmt.Fprintln(os.Stderr, "Loading packages…")
 	if err = a.Load(); err != nil {
 		return
 	}
 
-	log.Printf("Building call graph…")
+	fmt.Fprintln(os.Stderr, "Building call graph…")
 	functions, graph, err = a.BuildGraph()
 	if err != nil {
 		return
@@ -48,14 +47,14 @@ func parseProject(
 		prevFuncHashes = prevBaseline.FunctionHashes
 	}
 
-	log.Printf("Computing hashes for %d functions…", len(functions))
+	fmt.Fprintf(os.Stderr, "Computing hashes for %d functions…\n", len(functions))
 	if err = a.ComputeHashes(functions, prevSrcHashes, prevFuncHashes); err != nil {
 		return
 	}
 
 	extDeps, extHash, err = a.ExtractExternalDeps()
 	if err != nil {
-		log.Printf("Warning: could not extract external deps: %v", err)
+		fmt.Fprintf(os.Stderr, "Warning: could not extract external deps: %v\n", err)
 		extDeps = map[string]string{}
 		extHash = ""
 		err = nil //nolint:ineffassign
@@ -63,7 +62,7 @@ func parseProject(
 
 	sourceHashes, err = a.ComputeSourceHashes()
 	if err != nil {
-		log.Printf("Warning: could not compute source hashes: %v", err)
+		fmt.Fprintf(os.Stderr, "Warning: could not compute source hashes: %v\n", err)
 		sourceHashes = map[string]string{}
 		err = nil //nolint:ineffassign
 	}

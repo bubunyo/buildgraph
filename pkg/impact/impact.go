@@ -27,7 +27,6 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 		AffectedFunctions: make(map[string][]string),
 		AffectReasons:     make(map[string][]string),
 		ServicesToBuild:   []string{},
-		Changes:           changes,
 	}
 
 	// Get initial changed functions
