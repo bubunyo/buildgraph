@@ -237,3 +237,62 @@ func TestNewAnalyzer_ServiceSet_EmptyGraphProducesEmptySet(t *testing.T) {
 	assert.Empty(t, a.serviceSet)
 	assert.False(t, a.isService("services/anything"))
 }
+
+// ── serviceDirs filtering ─────────────────────────────────────────────────────
+
+// TestComputeImpact_ToolsExcludedByServiceDir asserts that when serviceDirs is
+// configured, only main packages under those directories appear in
+// ServicesToBuild — tools/mytool must not be included even though it has a
+// main function reachable from the changed function.
+//
+// This test is expected to FAIL until NewAnalyzer accepts a serviceDirs
+// parameter and filters the serviceSet accordingly.
+func TestComputeImpact_ToolsExcludedByServiceDir(t *testing.T) {
+	g := buildGraph(
+		map[string]bool{
+			"core.Fn":           false,
+			"tools/mytool.main": true,
+			"services/svc.main": true,
+		},
+		map[string]string{
+			"core.Fn":           "core/mod",
+			"tools/mytool.main": "tools/mytool",
+			"services/svc.main": "services/svc",
+		},
+		map[string][]string{
+			"core.Fn": {"tools/mytool.main", "services/svc.main"},
+		},
+	)
+	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("core.Fn")})
+
+	assert.Contains(t, result.ServicesToBuild, "services/svc")
+	assert.NotContains(t, result.ServicesToBuild, "tools/mytool")
+}
+
+// TestComputeImpact_EmptyServiceDirsFallsBackToAllMains asserts that when no
+// serviceDirs are configured (nil), all main packages — including those under
+// tools/ — are treated as services and emitted by their full owner path.
+//
+// This test is expected to FAIL until NewAnalyzer accepts a serviceDirs
+// parameter and ServicesToBuild emits full owner paths instead of path.Base.
+func TestComputeImpact_EmptyServiceDirsFallsBackToAllMains(t *testing.T) {
+	g := buildGraph(
+		map[string]bool{
+			"core.Fn":           false,
+			"tools/mytool.main": true,
+			"services/svc.main": true,
+		},
+		map[string]string{
+			"core.Fn":           "core/mod",
+			"tools/mytool.main": "tools/mytool",
+			"services/svc.main": "services/svc",
+		},
+		map[string][]string{
+			"core.Fn": {"tools/mytool.main", "services/svc.main"},
+		},
+	)
+	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("core.Fn")})
+
+	assert.Contains(t, result.ServicesToBuild, "tools/mytool")
+	assert.Contains(t, result.ServicesToBuild, "services/svc")
+}

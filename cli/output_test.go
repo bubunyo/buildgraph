@@ -70,6 +70,35 @@ func TestFormatText_ServicesSorted(t *testing.T) {
 	assert.True(t, idxA < idxB && idxB < idxC, "expected services sorted a < b < c in output:\n%s", out)
 }
 
+// TestFormatDot_ServiceMarkedRebuild_WithFullPath asserts that when
+// ServicesToBuild contains a full owner path (e.g. "services/svc-a"), the
+// corresponding cluster in the DOT output is marked [rebuild].
+//
+// This test is expected to FAIL because formatDot currently extracts only the
+// last path segment (shortOwner) for the rebuiltServices lookup, so a full-path
+// key like "services/svc-a" never matches.
+func TestFormatDot_ServiceMarkedRebuild_WithFullPath(t *testing.T) {
+	result := &types.Result{
+		HasChanges: true,
+		Changes:    []types.Change{{Function: "core.Fn", Type: "modified"}},
+		Impact: types.Impact{
+			ServicesToBuild: []string{"services/svc-a"},
+			AffectedFunctions: map[string][]string{
+				"services/svc-a": {"services/svc-a.main"},
+			},
+		},
+	}
+	graph := &types.CallGraph{
+		Nodes: map[string]types.Function{
+			"services/svc-a.main": {FullName: "services/svc-a.main", IsMain: true},
+		},
+	}
+
+	out := formatDot(result, graph)
+
+	assert.Contains(t, out, "[rebuild]", "cluster for services/svc-a should be marked [rebuild]")
+}
+
 func TestCountFiles(t *testing.T) {
 	fns := map[string]*types.Function{
 		"pkg.Foo": {File: "core/foo.go"},
