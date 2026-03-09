@@ -338,21 +338,16 @@ func (a *Analyzer) isInternal(fn *ssa.Function) bool {
 	return strings.HasPrefix(fn.Package().Pkg.Path(), a.rootModule)
 }
 
+// owner returns the relative package path for a function, e.g.
+// "services/service-a" or "core/module-a".  Using the full package path
+// (rather than a fixed two-component prefix) means that main packages at any
+// depth in the tree are correctly identified as distinct services.
 func (a *Analyzer) owner(fn *ssa.Function) string {
 	if fn.Package() == nil {
 		return ""
 	}
 	pkgPath := fn.Package().Pkg.Path()
-	rel := strings.TrimPrefix(pkgPath, a.rootModule+"/")
-	// Return the top two path components (e.g. "services/service-a" or
-	// "core/module-a") so that individual services are distinguished from
-	// one another. If the package lives directly under the root (no slash),
-	// return the single component as-is.
-	parts := strings.SplitN(rel, "/", 3)
-	if len(parts) >= 2 {
-		return parts[0] + "/" + parts[1]
-	}
-	return parts[0]
+	return strings.TrimPrefix(pkgPath, a.rootModule+"/")
 }
 
 func (a *Analyzer) toFunction(fn *ssa.Function) *types.Function {

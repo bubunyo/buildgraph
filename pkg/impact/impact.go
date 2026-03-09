@@ -1,9 +1,9 @@
 package impact
 
 import (
+	"path"
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/bubunyo/buildgraph/pkg/types"
 )
@@ -111,14 +111,12 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 	}
 
 	for svc := range serviceSet {
-		// Emit the short service name (last path component) rather than the
-		// full relative path (e.g. "service-a" instead of "services/service-a").
-		parts := strings.SplitN(svc, "/", 2)
-		name := svc
-		if len(parts) == 2 {
-			name = parts[1]
-		}
-		impact.ServicesToBuild = append(impact.ServicesToBuild, name)
+		// Emit the last path component as the service name so that services at
+		// any depth in the tree are handled correctly:
+		//   "services/service-a"       → "service-a"
+		//   "cmd/myservice"            → "myservice"
+		//   "services/group/service-a" → "service-a"
+		impact.ServicesToBuild = append(impact.ServicesToBuild, path.Base(svc))
 	}
 	sort.Strings(impact.ServicesToBuild)
 
@@ -132,12 +130,7 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 				continue
 			}
 			seen[owner] = true
-			parts := strings.SplitN(owner, "/", 2)
-			name := owner
-			if len(parts) == 2 {
-				name = parts[1]
-			}
-			impact.ServicesToBuild = append(impact.ServicesToBuild, name)
+			impact.ServicesToBuild = append(impact.ServicesToBuild, path.Base(owner))
 		}
 		sort.Strings(impact.ServicesToBuild)
 	}
