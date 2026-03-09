@@ -24,7 +24,7 @@ jobs:
     name: Analyze changed services
     runs-on: ubuntu-latest
     outputs:
-      # JSON array of service names, e.g. '["service-a","service-b"]'
+      # JSON array of relative service paths, e.g. '["services/service-a","services/service-b"]'
       services: ${{ steps.buildgraph.outputs.services }}
       has_changes: ${{ steps.buildgraph.outputs.has_changes }}
 
@@ -64,7 +64,9 @@ jobs:
       # ── Customize this step to match your project layout ──
       - name: Build ${{ matrix.service }}
         working-directory: testproject
-        run: go build -v -o bin/${{ matrix.service }} ${{ matrix.service }}/...
+        run: |
+          mkdir -p bin/$(dirname ${{ matrix.service }})
+          go build -v -o bin/${{ matrix.service }} ./${{ matrix.service }}/...
 
       - name: Test ${{ matrix.service }}
         working-directory: testproject
