@@ -92,14 +92,3 @@ type Result struct {
 	Impact           Impact     `json:"impact"`
 	Debug            *DebugInfo `json:"debug,omitempty"`
 }
-
-type SourceFileInfo struct {
-	File   string `json:"file"`
-	Hash   string `json:"hash"`
-	Parsed bool   `json:"parsed"`
-}
-
-type ImpactIndex struct {
-	FunctionToServices map[string][]string `json:"function_to_services"`
-	ServiceToModules   map[string][]string `json:"service_to_modules"`
-}

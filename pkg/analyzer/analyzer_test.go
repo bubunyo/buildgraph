@@ -225,3 +225,86 @@ func TestExtractExternalDeps_ReturnsNonEmptyHash(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, hash)
 }
+
+// ── funcKey collision ─────────────────────────────────────────────────────────
+
+// TestBuildGraph_ReceiverMethodsHaveDistinctKeys verifies that two methods
+// with the same name on different receiver types in the same package produce
+// distinct keys in the functions map. The testproject/core/collision package
+// defines (*A).Run and (*B).Run for exactly this purpose.
+func TestBuildGraph_ReceiverMethodsHaveDistinctKeys(t *testing.T) {
+	a := loadedAnalyzer(t)
+
+	fns, _, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	// Collect all keys that contain the collision package and the method name "Run".
+	var runKeys []string
+	for key := range fns {
+		if strings.Contains(key, "collision") && strings.HasSuffix(key, ".Run") {
+			runKeys = append(runKeys, key)
+		}
+	}
+
+	// We expect exactly two distinct keys: one for (*A).Run and one for (*B).Run.
+	assert.Len(t, runKeys, 2,
+		"expected two distinct keys for (*A).Run and (*B).Run, got: %v", runKeys)
+	assert.NotEqual(t, runKeys[0], runKeys[1],
+		"(*A).Run and (*B).Run must not share the same funcKey")
+}
+
+// ── Exclude patterns ─────────────────────────────────────────────────────────
+
+// TestBuildGraph_ExcludePatternsRemoveFunctions verifies that functions whose
+// source file matches a configured exclude glob pattern are omitted from the
+// returned functions map and call graph.
+func TestBuildGraph_ExcludePatternsRemoveFunctions(t *testing.T) {
+	// The collision package lives in core/collision/collision.go.
+	// Excluding "**/collision.go" should remove (*A).Run and (*B).Run.
+	cfg := &config.Config{
+		Services: []string{"services"},
+		Exclude: config.ExcludeConfig{
+			Patterns: []string{"**/collision.go"},
+		},
+	}
+	a := analyzer.New(cfg, "github.com/bubunyo/buildgraph/testproject", testprojectDir())
+	require.NoError(t, a.Load())
+
+	fns, graph, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	for key := range fns {
+		assert.NotContains(t, key, "collision",
+			"function from excluded file must not appear in functions map: %s", key)
+	}
+	for key := range graph.Nodes {
+		assert.NotContains(t, key, "collision",
+			"function from excluded file must not appear in graph nodes: %s", key)
+	}
+}
+
+// TestBuildGraph_ExcludePatternsPreserveOtherFunctions verifies that only the
+// matched functions are removed and the rest of the graph is intact.
+func TestBuildGraph_ExcludePatternsPreserveOtherFunctions(t *testing.T) {
+	cfg := &config.Config{
+		Services: []string{"services"},
+		Exclude: config.ExcludeConfig{
+			Patterns: []string{"**/collision.go"},
+		},
+	}
+	a := analyzer.New(cfg, "github.com/bubunyo/buildgraph/testproject", testprojectDir())
+	require.NoError(t, a.Load())
+
+	fns, _, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	// Functions from module-a and module-b must still be present.
+	found := false
+	for key := range fns {
+		if strings.Contains(key, "module") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "non-excluded functions from module-a/module-b must still be present")
+}

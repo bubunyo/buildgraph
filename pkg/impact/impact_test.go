@@ -200,3 +200,40 @@ func TestIsService_IdentifiesByMainFunction(t *testing.T) {
 	assert.True(t, a.isService("services/svc"))
 	assert.False(t, a.isService("core/mod"))
 }
+
+// ── serviceSet precomputation ─────────────────────────────────────────────────
+
+// TestNewAnalyzer_ServiceSetPrecomputed verifies that NewAnalyzer builds
+// the serviceSet from graph nodes so that isService is an O(1) map lookup.
+func TestNewAnalyzer_ServiceSetPrecomputed(t *testing.T) {
+	g := buildGraph(
+		map[string]bool{
+			"services/svc-a.main": true,
+			"services/svc-b.main": true,
+			"core/mod.Helper":     false,
+		},
+		map[string]string{
+			"services/svc-a.main": "services/svc-a",
+			"services/svc-b.main": "services/svc-b",
+			"core/mod.Helper":     "core/mod",
+		},
+		map[string][]string{},
+	)
+	a := NewAnalyzer(g)
+
+	// Both services must be pre-indexed.
+	assert.True(t, a.serviceSet["services/svc-a"], "svc-a must be in serviceSet")
+	assert.True(t, a.serviceSet["services/svc-b"], "svc-b must be in serviceSet")
+	// Non-service owners must not appear.
+	assert.False(t, a.serviceSet["core/mod"], "core/mod must not be in serviceSet")
+}
+
+// TestNewAnalyzer_ServiceSet_EmptyGraphProducesEmptySet verifies that an
+// empty graph does not panic and produces an empty serviceSet.
+func TestNewAnalyzer_ServiceSet_EmptyGraphProducesEmptySet(t *testing.T) {
+	g := buildGraph(map[string]bool{}, map[string]string{}, map[string][]string{})
+	a := NewAnalyzer(g)
+
+	assert.Empty(t, a.serviceSet)
+	assert.False(t, a.isService("services/anything"))
+}

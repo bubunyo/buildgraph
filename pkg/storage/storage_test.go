@@ -102,3 +102,35 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	assert.Equal(t, want.FunctionHashes["pkg.Foo"].ASTHash, got.FunctionHashes["pkg.Foo"].ASTHash)
 	assert.Equal(t, want.SourceHashes["foo.go"], got.SourceHashes["foo.go"])
 }
+
+// ── version validation ────────────────────────────────────────────────────────
+
+// TestLoadBaseline_WrongVersion_ReturnsError verifies that loading a baseline
+// whose version does not match CurrentVersion returns an error.
+func TestLoadBaseline_WrongVersion_ReturnsError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	// SaveBaseline marshals whatever Version is set on the struct, so saving
+	// with "0.9" produces a file that LoadBaseline must reject.
+	stale := &types.Baseline{Version: "0.9", Commit: "oldcommit"}
+	require.NoError(t, New().SaveBaseline(stale, path))
+
+	_, err := New().LoadBaseline(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported")
+	assert.Contains(t, err.Error(), CurrentVersion)
+}
+
+// TestLoadBaseline_CurrentVersion_Succeeds verifies that a baseline written
+// with the current version is accepted by LoadBaseline.
+func TestLoadBaseline_CurrentVersion_Succeeds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	b := &types.Baseline{Version: CurrentVersion, Commit: "abc"}
+
+	s := New()
+	require.NoError(t, s.SaveBaseline(b, path))
+
+	got, err := s.LoadBaseline(path)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, CurrentVersion, got.Version)
+}

@@ -12,13 +12,27 @@ type Analyzer struct {
 	graph          *types.CallGraph
 	functionOwners map[string]string
 	reverseIndex   map[string][]string
+	// serviceSet is a pre-computed set of owners (e.g. "services/service-a")
+	// that contain a main function, built once in NewAnalyzer for O(1) lookup.
+	serviceSet map[string]bool
 }
 
 func NewAnalyzer(graph *types.CallGraph) *Analyzer {
+	// Pre-compute the service set by scanning graph nodes once.
+	serviceSet := make(map[string]bool)
+	for key, fn := range graph.Nodes {
+		if fn.IsMain {
+			if owner, ok := graph.FunctionOwner[key]; ok && owner != "" {
+				serviceSet[owner] = true
+			}
+		}
+	}
+
 	return &Analyzer{
 		graph:          graph,
 		functionOwners: graph.FunctionOwner,
 		reverseIndex:   graph.ReverseIndex,
+		serviceSet:     serviceSet,
 	}
 }
 
@@ -131,17 +145,8 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 	return impact
 }
 
+// isService reports whether the given owner has a main function, using the
+// pre-computed serviceSet for O(1) lookup.
 func (a *Analyzer) isService(owner string) bool {
-	// A service is identified by having a main function
-	// We check if any function in this owner has IsMain = true
-	for funcName, o := range a.functionOwners {
-		if o == owner {
-			if fn, exists := a.graph.Nodes[funcName]; exists {
-				if fn.IsMain {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return a.serviceSet[owner]
 }
