@@ -1,9 +1,9 @@
 package impact
 
 import (
-	"path"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/bubunyo/buildgraph/pkg/types"
 )
@@ -14,15 +14,27 @@ type Analyzer struct {
 	reverseIndex   map[string][]string
 	// serviceSet is a pre-computed set of owners (e.g. "services/service-a")
 	// that contain a main function, built once in NewAnalyzer for O(1) lookup.
+	// When serviceDirs is non-empty, only owners whose path starts with one of
+	// the configured directories are included.
 	serviceSet map[string]bool
 }
 
-func NewAnalyzer(graph *types.CallGraph) *Analyzer {
+// NewAnalyzer creates an impact Analyzer for the given call graph.
+//
+// serviceDirs is the list of directory prefixes that contain deployable
+// services (e.g. ["services"]). Only main packages whose owner path starts
+// with one of these prefixes are treated as services. If serviceDirs is nil
+// or empty, all main packages are treated as services.
+func NewAnalyzer(graph *types.CallGraph, serviceDirs []string) *Analyzer {
 	// Pre-compute the service set by scanning graph nodes once.
 	serviceSet := make(map[string]bool)
 	for key, fn := range graph.Nodes {
 		if fn.IsMain {
-			if owner, ok := graph.FunctionOwner[key]; ok && owner != "" {
+			owner, ok := graph.FunctionOwner[key]
+			if !ok || owner == "" {
+				continue
+			}
+			if len(serviceDirs) == 0 || ownerMatchesAnyDir(owner, serviceDirs) {
 				serviceSet[owner] = true
 			}
 		}
@@ -34,6 +46,18 @@ func NewAnalyzer(graph *types.CallGraph) *Analyzer {
 		reverseIndex:   graph.ReverseIndex,
 		serviceSet:     serviceSet,
 	}
+}
+
+// ownerMatchesAnyDir reports whether owner lives under any of the given
+// directory prefixes. It matches "services/svc-a" against prefix "services"
+// by checking that owner == dir or strings.HasPrefix(owner, dir+"/").
+func ownerMatchesAnyDir(owner string, dirs []string) bool {
+	for _, dir := range dirs {
+		if owner == dir || strings.HasPrefix(owner, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
@@ -111,12 +135,7 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 	}
 
 	for svc := range serviceSet {
-		// Emit the last path component as the service name so that services at
-		// any depth in the tree are handled correctly:
-		//   "services/service-a"       → "service-a"
-		//   "cmd/myservice"            → "myservice"
-		//   "services/group/service-a" → "service-a"
-		impact.ServicesToBuild = append(impact.ServicesToBuild, path.Base(svc))
+		impact.ServicesToBuild = append(impact.ServicesToBuild, svc)
 	}
 	sort.Strings(impact.ServicesToBuild)
 
@@ -130,7 +149,7 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 				continue
 			}
 			seen[owner] = true
-			impact.ServicesToBuild = append(impact.ServicesToBuild, path.Base(owner))
+			impact.ServicesToBuild = append(impact.ServicesToBuild, owner)
 		}
 		sort.Strings(impact.ServicesToBuild)
 	}

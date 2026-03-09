@@ -362,7 +362,7 @@ func TestBuildGraph_ToolsLoadedButNotServices(t *testing.T) {
 	//
 	// Currently FAILS because impact.NewAnalyzer has no serviceDirs param and
 	// treats every main as a service, emitting "tool-a" (path.Base) in the result.
-	impactAnalyzer := impact.NewAnalyzer(graph)
+	impactAnalyzer := impact.NewAnalyzer(graph, []string{"services"})
 
 	// Simulate a change to module-a which tool-a also depends on.
 	var moduleAFunc string
