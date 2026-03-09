@@ -81,14 +81,14 @@ func TestSSAIndex_KeyConsistency(t *testing.T) {
 	missing := 0
 	for k, fn := range fns {
 		ssaFn := a.findSSAFunc(k)
-		if ssaFn == nil && fn.ASTHash == "" {
-			// Functions with no syntax (e.g. external wrappers) may not be in
-			// the CHA nodes — allow those to be absent.
+		if ssaFn == nil && fn.File == "" {
+			// Functions with no source file are external/synthetic wrappers that
+			// the CHA graph may include without a real SSA node — allow absence.
 			continue
 		}
 		if ssaFn == nil {
 			missing++
-			t.Logf("findSSAFunc returned nil for key %q (ASTHash=%q)", k, fn.ASTHash)
+			t.Logf("findSSAFunc returned nil for key %q (File=%q)", k, fn.File)
 		}
 	}
 	assert.Equal(t, 0, missing, "%d functions in the map could not be resolved via findSSAFunc", missing)

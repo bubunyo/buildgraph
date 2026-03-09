@@ -508,7 +508,7 @@ func (a *Analyzer) fileMatchesExclude(relFile string) bool {
 	// Normalise to forward slashes for cross-platform consistency.
 	relFile = filepath.ToSlash(relFile)
 
-	if a.cfg.Exclude.SkipVendor && strings.Contains(relFile, "/vendor/") {
+	if a.cfg.Exclude.SkipVendor && (strings.HasPrefix(relFile, "vendor/") || strings.Contains(relFile, "/vendor/")) {
 		return true
 	}
 

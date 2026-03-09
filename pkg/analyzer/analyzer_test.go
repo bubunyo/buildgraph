@@ -247,7 +247,7 @@ func TestBuildGraph_ReceiverMethodsHaveDistinctKeys(t *testing.T) {
 	}
 
 	// We expect exactly two distinct keys: one for (*A).Run and one for (*B).Run.
-	assert.Len(t, runKeys, 2,
+	require.Len(t, runKeys, 2,
 		"expected two distinct keys for (*A).Run and (*B).Run, got: %v", runKeys)
 	assert.NotEqual(t, runKeys[0], runKeys[1],
 		"(*A).Run and (*B).Run must not share the same funcKey")
