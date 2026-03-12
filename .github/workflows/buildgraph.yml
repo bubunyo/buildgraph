@@ -38,6 +38,7 @@ jobs:
         id: buildgraph
         uses: ./action
         with:
+          version: source
           working-directory: testproject
           go-version-file: testproject/go.mod
 
