@@ -310,7 +310,46 @@ func TestBuildGraph_ExcludePatternsPreserveOtherFunctions(t *testing.T) {
 	assert.True(t, found, "non-excluded functions from module-a/module-b must still be present")
 }
 
-// ── serviceDirs integration ───────────────────────────────────────────────────
+// ── blank import / side-effect dependency ────────────────────────────────────
+
+// TestBuildGraph_BlankImport_SideEffectTrackedInReverseIndex asserts that a
+// package imported only for its side effects (import _ "pkg") creates a
+// dependency edge in the call graph so that changes to it trigger a rebuild of
+// the importing service.
+//
+// This test is expected to FAIL until the analyzer synthesises a dependency
+// edge from the importer to the blank-imported package's init.
+func TestBuildGraph_BlankImport_SideEffectTrackedInReverseIndex(t *testing.T) {
+	a := loadedAnalyzer(t)
+	_, graph, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	const sideeffectPkg = "sideeffect"
+	const serviceAPkg = "service-a"
+
+	// sideeffect.init must appear in the reverse index — service-a blank-imports it.
+	var sideeffectKey string
+	for k := range graph.ReverseIndex {
+		if strings.Contains(k, sideeffectPkg) {
+			sideeffectKey = k
+			break
+		}
+	}
+	require.NotEmpty(t, sideeffectKey,
+		"sideeffect.init must appear in the reverse index (service-a blank-imports it)")
+
+	// service-a must be listed as a caller of sideeffect.
+	callers := graph.ReverseIndex[sideeffectKey]
+	found := false
+	for _, caller := range callers {
+		if strings.Contains(caller, serviceAPkg) {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found,
+		"service-a must appear as a caller of sideeffect via blank import; callers=%v", callers)
+}
 
 // TestBuildGraph_ToolsLoadedButNotServices verifies that when the testproject
 // has a tools/tool-a package (which imports a shared core module and has a
