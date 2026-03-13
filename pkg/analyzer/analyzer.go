@@ -19,6 +19,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/callgraph"
@@ -496,6 +497,23 @@ func (a *Analyzer) synthesiseBlankImportEdges(
 		// NOT in this set was blank-imported.
 		named := namedImports(pkg)
 
+		// Fast path: if every import is named, there is nothing to synthesise.
+		if len(named) == len(pkg.Imports) {
+			continue
+		}
+
+		// Resolve the importer's SSA package once — it is shared across all
+		// blank imports of this package.
+		importerSSA := a.prog.Package(pkg.Types)
+		if importerSSA == nil {
+			continue
+		}
+		importerInit := importerSSA.Func("init")
+		if importerInit == nil {
+			continue
+		}
+		importerKey := funcKey(importerInit)
+
 		for importPath, importedPkg := range pkg.Imports {
 			if named[importPath] {
 				continue // regular import — CHA already handles it
@@ -504,36 +522,28 @@ func (a *Analyzer) synthesiseBlankImportEdges(
 				continue // only care about internal blank imports
 			}
 
-			// Resolve SSA packages for importer and importee.
-			importerSSA := a.prog.Package(pkg.Types)
 			importedSSA := a.prog.Package(importedPkg.Types)
-			if importerSSA == nil || importedSSA == nil {
+			if importedSSA == nil {
 				continue
 			}
-
-			importerInit := importerSSA.Func("init")
 			importedInit := importedSSA.Func("init")
-			if importerInit == nil || importedInit == nil {
+			if importedInit == nil {
 				continue
 			}
-
-			importerKey := funcKey(importerInit)
 			importedKey := funcKey(importedInit)
 
-			// Ensure both nodes are registered in the graph.
-			for _, pair := range []struct {
-				key string
-				fn  *ssa.Function
-			}{
-				{importerKey, importerInit},
-				{importedKey, importedInit},
-			} {
-				if _, exists := functions[pair.key]; !exists {
-					f := a.toFunction(pair.fn)
-					functions[pair.key] = f
-					nodes[pair.key] = *f
-					functionOwner[pair.key] = a.owner(pair.fn)
-				}
+			// Ensure both init functions are registered in the graph.
+			if _, exists := functions[importerKey]; !exists {
+				f := a.toFunction(importerInit)
+				functions[importerKey] = f
+				nodes[importerKey] = *f
+				functionOwner[importerKey] = a.owner(importerInit)
+			}
+			if _, exists := functions[importedKey]; !exists {
+				f := a.toFunction(importedInit)
+				functions[importedKey] = f
+				nodes[importedKey] = *f
+				functionOwner[importedKey] = a.owner(importedInit)
 			}
 
 			// Add the synthetic reverse edge: importedInit ← importerInit.
@@ -555,7 +565,10 @@ func namedImports(pkg *packages.Package) map[string]bool {
 			// imp.Name.Name == "_" → blank import
 			if imp.Name == nil || imp.Name.Name != "_" {
 				// Unquote the import path string literal.
-				p := strings.Trim(imp.Path.Value, `"`)
+				p, err := strconv.Unquote(imp.Path.Value)
+				if err != nil {
+					continue
+				}
 				named[p] = true
 			}
 		}

@@ -5,5 +5,5 @@ package sideeffect
 var Registered bool
 
 func init() {
-	Registered = true
+	Registered = false
 }
