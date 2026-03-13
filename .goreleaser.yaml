@@ -6,7 +6,7 @@ before:
 
 builds:
   - id: buildgraph
-    main: ./cmd
+    main: .
     binary: buildgraph
     env:
       - CGO_ENABLED=0
