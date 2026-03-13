@@ -56,7 +56,7 @@ func runAnalyze(cmd *cobra.Command, _ []string) error {
 	detector := diff.NewDetector(functions, extDeps, extHash, previousBaseline)
 	changes := detector.DetectChanges()
 
-	impactAnalyzer := impact.NewAnalyzer(graph)
+	impactAnalyzer := impact.NewAnalyzer(graph, cfg.Services)
 	impactResult := impactAnalyzer.ComputeImpact(changes)
 
 	previousCommit := ""

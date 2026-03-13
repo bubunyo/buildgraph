@@ -43,7 +43,7 @@ func TestComputeImpact_NoChanges(t *testing.T) {
 		map[string]string{"svc.main": "services/svc"},
 		map[string][]string{},
 	)
-	result := NewAnalyzer(g).ComputeImpact(nil)
+	result := NewAnalyzer(g, nil).ComputeImpact(nil)
 
 	assert.Empty(t, result.ServicesToBuild)
 	assert.Empty(t, result.AffectedFunctions)
@@ -55,9 +55,9 @@ func TestComputeImpact_DirectServiceChange(t *testing.T) {
 		map[string]string{"services/svc.main": "services/svc"},
 		map[string][]string{},
 	)
-	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("services/svc.main")})
+	result := NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("services/svc.main")})
 
-	assert.Contains(t, result.ServicesToBuild, "svc")
+	assert.Contains(t, result.ServicesToBuild, "services/svc")
 }
 
 func TestComputeImpact_CoreChangePropagatesToService(t *testing.T) {
@@ -74,9 +74,9 @@ func TestComputeImpact_CoreChangePropagatesToService(t *testing.T) {
 			"core.Save": {"services/svc-a.main"},
 		},
 	)
-	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("core.Save")})
+	result := NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("core.Save")})
 
-	assert.Contains(t, result.ServicesToBuild, "svc-a")
+	assert.Contains(t, result.ServicesToBuild, "services/svc-a")
 }
 
 func TestComputeImpact_UnrelatedServiceNotAffected(t *testing.T) {
@@ -95,10 +95,10 @@ func TestComputeImpact_UnrelatedServiceNotAffected(t *testing.T) {
 			"core.Save": {"services/svc-a.main"},
 		},
 	)
-	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("core.Save")})
+	result := NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("core.Save")})
 
-	assert.NotContains(t, result.ServicesToBuild, "svc-b")
-	assert.Contains(t, result.ServicesToBuild, "svc-a")
+	assert.NotContains(t, result.ServicesToBuild, "services/svc-b")
+	assert.Contains(t, result.ServicesToBuild, "services/svc-a")
 }
 
 func TestComputeImpact_MultiHopPropagation(t *testing.T) {
@@ -118,9 +118,9 @@ func TestComputeImpact_MultiHopPropagation(t *testing.T) {
 			"core.Mid": {"services/svc.main"},
 		},
 	)
-	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("core.Low")})
+	result := NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("core.Low")})
 
-	assert.Contains(t, result.ServicesToBuild, "svc")
+	assert.Contains(t, result.ServicesToBuild, "services/svc")
 }
 
 func TestComputeImpact_ServicesToBuildSorted(t *testing.T) {
@@ -139,9 +139,9 @@ func TestComputeImpact_ServicesToBuildSorted(t *testing.T) {
 			"core.Fn": {"services/svc-b.main", "services/svc-a.main"},
 		},
 	)
-	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("core.Fn")})
+	result := NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("core.Fn")})
 
-	assert.Equal(t, []string{"svc-a", "svc-b"}, result.ServicesToBuild)
+	assert.Equal(t, []string{"services/svc-a", "services/svc-b"}, result.ServicesToBuild)
 }
 
 func TestComputeImpact_FallbackBuildsAllServicesWhenCoreChanges(t *testing.T) {
@@ -156,11 +156,11 @@ func TestComputeImpact_FallbackBuildsAllServicesWhenCoreChanges(t *testing.T) {
 		},
 		map[string][]string{}, // no callers of core.Orphan
 	)
-	result := NewAnalyzer(g).ComputeImpact([]types.Change{change("core.Orphan")})
+	result := NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("core.Orphan")})
 
 	// The fallback kicks in: since no service was reached, all known services
 	// should be included.
-	assert.Contains(t, result.ServicesToBuild, "svc-a")
+	assert.Contains(t, result.ServicesToBuild, "services/svc-a")
 }
 
 // TestComputeImpact_ChangedFunctionWithNoOwner covers the branch where a
@@ -179,7 +179,7 @@ func TestComputeImpact_ChangedFunctionWithNoOwner(t *testing.T) {
 	)
 	// Should not panic.
 	assert.NotPanics(t, func() {
-		NewAnalyzer(g).ComputeImpact([]types.Change{change("orphan.Fn")})
+		NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("orphan.Fn")})
 	})
 }
 
@@ -195,8 +195,104 @@ func TestIsService_IdentifiesByMainFunction(t *testing.T) {
 		},
 		map[string][]string{},
 	)
-	a := NewAnalyzer(g)
+	a := NewAnalyzer(g, nil)
 
 	assert.True(t, a.isService("services/svc"))
 	assert.False(t, a.isService("core/mod"))
+}
+
+// ── serviceSet precomputation ─────────────────────────────────────────────────
+
+// TestNewAnalyzer_ServiceSetPrecomputed verifies that NewAnalyzer builds
+// the serviceSet from graph nodes so that isService is an O(1) map lookup.
+func TestNewAnalyzer_ServiceSetPrecomputed(t *testing.T) {
+	g := buildGraph(
+		map[string]bool{
+			"services/svc-a.main": true,
+			"services/svc-b.main": true,
+			"core/mod.Helper":     false,
+		},
+		map[string]string{
+			"services/svc-a.main": "services/svc-a",
+			"services/svc-b.main": "services/svc-b",
+			"core/mod.Helper":     "core/mod",
+		},
+		map[string][]string{},
+	)
+	a := NewAnalyzer(g, nil)
+
+	// Both services must be pre-indexed.
+	assert.True(t, a.serviceSet["services/svc-a"], "svc-a must be in serviceSet")
+	assert.True(t, a.serviceSet["services/svc-b"], "svc-b must be in serviceSet")
+	// Non-service owners must not appear.
+	assert.False(t, a.serviceSet["core/mod"], "core/mod must not be in serviceSet")
+}
+
+// TestNewAnalyzer_ServiceSet_EmptyGraphProducesEmptySet verifies that an
+// empty graph does not panic and produces an empty serviceSet.
+func TestNewAnalyzer_ServiceSet_EmptyGraphProducesEmptySet(t *testing.T) {
+	g := buildGraph(map[string]bool{}, map[string]string{}, map[string][]string{})
+	a := NewAnalyzer(g, nil)
+
+	assert.Empty(t, a.serviceSet)
+	assert.False(t, a.isService("services/anything"))
+}
+
+// ── serviceDirs filtering ─────────────────────────────────────────────────────
+
+// TestComputeImpact_ToolsExcludedByServiceDir asserts that when serviceDirs is
+// configured, only main packages under those directories appear in
+// ServicesToBuild — tools/mytool must not be included even though it has a
+// main function reachable from the changed function.
+//
+// This test is expected to FAIL until NewAnalyzer accepts a serviceDirs
+// parameter and filters the serviceSet accordingly.
+func TestComputeImpact_ToolsExcludedByServiceDir(t *testing.T) {
+	g := buildGraph(
+		map[string]bool{
+			"core.Fn":           false,
+			"tools/mytool.main": true,
+			"services/svc.main": true,
+		},
+		map[string]string{
+			"core.Fn":           "core/mod",
+			"tools/mytool.main": "tools/mytool",
+			"services/svc.main": "services/svc",
+		},
+		map[string][]string{
+			"core.Fn": {"tools/mytool.main", "services/svc.main"},
+		},
+	)
+	result := NewAnalyzer(g, []string{"services"}).ComputeImpact([]types.Change{change("core.Fn")})
+
+	assert.Contains(t, result.ServicesToBuild, "services/svc")
+	assert.NotContains(t, result.ServicesToBuild, "tools/mytool")
+}
+
+// TestComputeImpact_EmptyServiceDirsFallsBackToAllMains asserts that when no
+// serviceDirs are configured (nil), all main packages — including those under
+// tools/ — are treated as services and emitted by their full owner path.
+//
+// This test is expected to FAIL until NewAnalyzer accepts a serviceDirs
+// parameter and ServicesToBuild emits full owner paths instead of path.Base.
+func TestComputeImpact_EmptyServiceDirsFallsBackToAllMains(t *testing.T) {
+	g := buildGraph(
+		map[string]bool{
+			"core.Fn":           false,
+			"tools/mytool.main": true,
+			"services/svc.main": true,
+		},
+		map[string]string{
+			"core.Fn":           "core/mod",
+			"tools/mytool.main": "tools/mytool",
+			"services/svc.main": "services/svc",
+		},
+		map[string][]string{
+			"core.Fn": {"tools/mytool.main", "services/svc.main"},
+		},
+	)
+	result := NewAnalyzer(g, nil).ComputeImpact([]types.Change{change("core.Fn")})
+
+	assert.Contains(t, result.ServicesToBuild, "tools/mytool")
+	assert.Contains(t, result.ServicesToBuild, "services/svc")
 }

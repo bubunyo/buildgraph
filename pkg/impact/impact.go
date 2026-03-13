@@ -12,14 +12,52 @@ type Analyzer struct {
 	graph          *types.CallGraph
 	functionOwners map[string]string
 	reverseIndex   map[string][]string
+	// serviceSet is a pre-computed set of owners (e.g. "services/service-a")
+	// that contain a main function, built once in NewAnalyzer for O(1) lookup.
+	// When serviceDirs is non-empty, only owners whose path starts with one of
+	// the configured directories are included.
+	serviceSet map[string]bool
 }
 
-func NewAnalyzer(graph *types.CallGraph) *Analyzer {
+// NewAnalyzer creates an impact Analyzer for the given call graph.
+//
+// serviceDirs is the list of directory prefixes that contain deployable
+// services (e.g. ["services"]). Only main packages whose owner path starts
+// with one of these prefixes are treated as services. If serviceDirs is nil
+// or empty, all main packages are treated as services.
+func NewAnalyzer(graph *types.CallGraph, serviceDirs []string) *Analyzer {
+	// Pre-compute the service set by scanning graph nodes once.
+	serviceSet := make(map[string]bool)
+	for key, fn := range graph.Nodes {
+		if fn.IsMain {
+			owner, ok := graph.FunctionOwner[key]
+			if !ok || owner == "" {
+				continue
+			}
+			if len(serviceDirs) == 0 || ownerMatchesAnyDir(owner, serviceDirs) {
+				serviceSet[owner] = true
+			}
+		}
+	}
+
 	return &Analyzer{
 		graph:          graph,
 		functionOwners: graph.FunctionOwner,
 		reverseIndex:   graph.ReverseIndex,
+		serviceSet:     serviceSet,
 	}
+}
+
+// ownerMatchesAnyDir reports whether owner lives under any of the given
+// directory prefixes. It matches "services/svc-a" against prefix "services"
+// by checking that owner == dir or strings.HasPrefix(owner, dir+"/").
+func ownerMatchesAnyDir(owner string, dirs []string) bool {
+	for _, dir := range dirs {
+		if owner == dir || strings.HasPrefix(owner, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
@@ -97,14 +135,7 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 	}
 
 	for svc := range serviceSet {
-		// Emit the short service name (last path component) rather than the
-		// full relative path (e.g. "service-a" instead of "services/service-a").
-		parts := strings.SplitN(svc, "/", 2)
-		name := svc
-		if len(parts) == 2 {
-			name = parts[1]
-		}
-		impact.ServicesToBuild = append(impact.ServicesToBuild, name)
+		impact.ServicesToBuild = append(impact.ServicesToBuild, svc)
 	}
 	sort.Strings(impact.ServicesToBuild)
 
@@ -118,12 +149,7 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 				continue
 			}
 			seen[owner] = true
-			parts := strings.SplitN(owner, "/", 2)
-			name := owner
-			if len(parts) == 2 {
-				name = parts[1]
-			}
-			impact.ServicesToBuild = append(impact.ServicesToBuild, name)
+			impact.ServicesToBuild = append(impact.ServicesToBuild, owner)
 		}
 		sort.Strings(impact.ServicesToBuild)
 	}
@@ -131,17 +157,8 @@ func (a *Analyzer) ComputeImpact(changes []types.Change) types.Impact {
 	return impact
 }
 
+// isService reports whether the given owner has a main function, using the
+// pre-computed serviceSet for O(1) lookup.
 func (a *Analyzer) isService(owner string) bool {
-	// A service is identified by having a main function
-	// We check if any function in this owner has IsMain = true
-	for funcName, o := range a.functionOwners {
-		if o == owner {
-			if fn, exists := a.graph.Nodes[funcName]; exists {
-				if fn.IsMain {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return a.serviceSet[owner]
 }

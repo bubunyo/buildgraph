@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"go/token"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -44,6 +45,11 @@ type Analyzer struct {
 	cg      *callgraph.Graph
 	allPkgs []*packages.Package
 
+	// ssaIndex is a key→*ssa.Function map built once in BuildGraph() so that
+	// findSSAFunc can resolve a function in O(1) instead of scanning all CHA
+	// nodes on every call.
+	ssaIndex map[string]*ssa.Function
+
 	// sourceHashCache memoizes SHA-256 digests of source files within a
 	// single analysis run to avoid redundant disk reads.
 	sourceHashCache map[string]string
@@ -54,6 +60,7 @@ func New(cfg *config.Config, rootModule, rootPath string) *Analyzer {
 		cfg:             cfg,
 		rootModule:      rootModule,
 		rootPath:        rootPath,
+		ssaIndex:        make(map[string]*ssa.Function),
 		sourceHashCache: make(map[string]string),
 	}
 }
@@ -210,6 +217,19 @@ func (a *Analyzer) BuildGraph() (map[string]*types.Function, *types.CallGraph, e
 		FunctionOwner: functionOwner,
 	}
 
+	// Build the O(1) SSA index so that ComputeHashes can look up functions
+	// by key without scanning all CHA nodes on every call.
+	for fn := range a.cg.Nodes {
+		if fn != nil {
+			a.ssaIndex[funcKey(fn)] = fn
+		}
+	}
+
+	// Apply exclude patterns: remove functions whose source file matches any
+	// configured glob pattern or whose file path contains /vendor/ when
+	// SkipVendor is enabled, keeping the graph consistent.
+	a.applyExcludeFilters(functions, graph)
+
 	return functions, graph, nil
 }
 
@@ -318,21 +338,16 @@ func (a *Analyzer) isInternal(fn *ssa.Function) bool {
 	return strings.HasPrefix(fn.Package().Pkg.Path(), a.rootModule)
 }
 
+// owner returns the relative package path for a function, e.g.
+// "services/service-a" or "core/module-a".  Using the full package path
+// (rather than a fixed two-component prefix) means that main packages at any
+// depth in the tree are correctly identified as distinct services.
 func (a *Analyzer) owner(fn *ssa.Function) string {
 	if fn.Package() == nil {
 		return ""
 	}
 	pkgPath := fn.Package().Pkg.Path()
-	rel := strings.TrimPrefix(pkgPath, a.rootModule+"/")
-	// Return the top two path components (e.g. "services/service-a" or
-	// "core/module-a") so that individual services are distinguished from
-	// one another. If the package lives directly under the root (no slash),
-	// return the single component as-is.
-	parts := strings.SplitN(rel, "/", 3)
-	if len(parts) >= 2 {
-		return parts[0] + "/" + parts[1]
-	}
-	return parts[0]
+	return strings.TrimPrefix(pkgPath, a.rootModule+"/")
 }
 
 func (a *Analyzer) toFunction(fn *ssa.Function) *types.Function {
@@ -402,13 +417,10 @@ func (a *Analyzer) astHash(fn *types.Function) (string, error) {
 	return fmt.Sprintf("sha256:%x", h), nil
 }
 
+// findSSAFunc returns the *ssa.Function for the given key using the pre-built
+// ssaIndex for O(1) lookup.  Returns nil if the key is not found.
 func (a *Analyzer) findSSAFunc(fullName string) *ssa.Function {
-	for fn := range a.cg.Nodes {
-		if fn != nil && funcKey(fn) == fullName {
-			return fn
-		}
-	}
-	return nil
+	return a.ssaIndex[fullName]
 }
 
 func (a *Analyzer) relPath(abs string) string {
@@ -440,14 +452,98 @@ func (a *Analyzer) buildPatterns() []string {
 	return patterns
 }
 
-// funcKey returns a stable, human-readable identifier for an SSA function:
-//
-//	"github.com/user/repo/pkg.FuncName"
-func funcKey(fn *ssa.Function) string {
-	if fn.Package() == nil {
-		return fn.String()
+// applyExcludeFilters removes from functions and graph any function whose
+// source file matches a configured exclude glob pattern or whose file path
+// contains /vendor/ when SkipVendor is enabled.  Entries are also purged from
+// the reverse index and function-owner map to keep the graph consistent.
+func (a *Analyzer) applyExcludeFilters(functions map[string]*types.Function, graph *types.CallGraph) {
+	if !a.cfg.Exclude.SkipVendor && len(a.cfg.Exclude.Patterns) == 0 {
+		return
 	}
-	return fn.Package().Pkg.Path() + "." + fn.Name()
+
+	excluded := make(map[string]bool)
+	for key, fn := range functions {
+		if a.fileMatchesExclude(fn.File) {
+			excluded[key] = true
+		}
+	}
+
+	for key := range excluded {
+		delete(functions, key)
+		delete(graph.Nodes, key)
+		delete(graph.FunctionOwner, key)
+		delete(graph.ReverseIndex, key)
+	}
+
+	// Also scrub excluded keys out of callers' reverse-index slices.
+	for callee, callers := range graph.ReverseIndex {
+		filtered := callers[:0]
+		for _, caller := range callers {
+			if !excluded[caller] {
+				filtered = append(filtered, caller)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(graph.ReverseIndex, callee)
+		} else {
+			graph.ReverseIndex[callee] = filtered
+		}
+	}
+}
+
+// fileMatchesExclude reports whether the given relative file path should be
+// excluded according to the configured SkipVendor flag and Patterns list.
+// Pattern matching uses path.Match (forward-slash semantics) and also handles
+// the common "**/" prefix by stripping it and matching against each path
+// component suffix.
+func (a *Analyzer) fileMatchesExclude(relFile string) bool {
+	if relFile == "" {
+		return false
+	}
+	// Normalise to forward slashes for cross-platform consistency.
+	relFile = filepath.ToSlash(relFile)
+
+	if a.cfg.Exclude.SkipVendor && (strings.HasPrefix(relFile, "vendor/") || strings.Contains(relFile, "/vendor/")) {
+		return true
+	}
+
+	for _, pattern := range a.cfg.Exclude.Patterns {
+		pattern = filepath.ToSlash(pattern)
+
+		// Support "**/" prefix: match the pattern against every suffix of the path.
+		trimmed := strings.TrimPrefix(pattern, "**/")
+		if trimmed != pattern {
+			// The pattern had a "**/" prefix — check all trailing sub-paths.
+			parts := strings.Split(relFile, "/")
+			for i := range parts {
+				candidate := strings.Join(parts[i:], "/")
+				if ok, _ := path.Match(trimmed, candidate); ok {
+					return true
+				}
+			}
+			continue
+		}
+
+		// Plain pattern — match against the whole relative path.
+		if ok, _ := path.Match(pattern, relFile); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// funcKey returns a stable, globally-unique identifier for an SSA function.
+// It uses fn.String() (≡ fn.RelString(nil)) which includes the receiver type
+// for methods, preventing collisions between methods of the same name on
+// different receiver types within the same package.
+//
+// Examples:
+//
+//	"github.com/user/repo/pkg.FuncName"       // package-level function
+//	"(*github.com/user/repo/pkg.TypeA).Save"  // pointer-receiver method
+//	"(github.com/user/repo/pkg.TypeB).Save"   // value-receiver method
+func funcKey(fn *ssa.Function) string {
+	return fn.String()
 }
 
 func fnPosition(fn *ssa.Function, fset *token.FileSet) (file string, start, end int) {

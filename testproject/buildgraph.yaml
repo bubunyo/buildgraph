@@ -13,6 +13,7 @@ exclude:
   patterns:
     - "**/*_gen.go"
     - "**/mock_*.go"
+    - "services/service-c/*"
 
 # Path where the baseline snapshot is stored.
 # Add .buildgraph/ to your .gitignore.

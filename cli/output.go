@@ -144,17 +144,14 @@ func formatDot(result *types.Result, graph *types.CallGraph) string {
 
 		// Determine cluster label — append "(rebuild)" for services being rebuilt.
 		label := owner
-		// Extract the last path segment as the service short name.
-		parts := strings.Split(owner, "/")
-		shortOwner := parts[len(parts)-1]
-		if rebuiltServices[shortOwner] {
+		if rebuiltServices[owner] {
 			label = owner + "  [rebuild]"
 		}
 
 		fmt.Fprintf(sb, "  subgraph cluster_%d {\n", clusterIdx)
 		fmt.Fprintf(sb, "    label=%q;\n", label)
 		fmt.Fprintln(sb, `    style=rounded;`)
-		if rebuiltServices[shortOwner] {
+		if rebuiltServices[owner] {
 			fmt.Fprintln(sb, `    color=red;`)
 		} else {
 			fmt.Fprintln(sb, `    color=orange;`)
