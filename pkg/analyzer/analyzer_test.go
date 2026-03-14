@@ -317,8 +317,8 @@ func TestBuildGraph_ExcludePatternsPreserveOtherFunctions(t *testing.T) {
 // dependency edge in the call graph so that changes to it trigger a rebuild of
 // the importing service.
 //
-// This test is expected to FAIL until the analyzer synthesises a dependency
-// edge from the importer to the blank-imported package's init.
+// synthesiseBlankImportEdges adds a synthetic edge from the importer's init to
+// the blank-imported package's init in the reverse index.
 func TestBuildGraph_BlankImport_SideEffectTrackedInReverseIndex(t *testing.T) {
 	a := loadedAnalyzer(t)
 	_, graph, err := a.BuildGraph()

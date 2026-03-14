@@ -546,6 +546,19 @@ func (a *Analyzer) synthesiseBlankImportEdges(
 				functionOwner[importedKey] = a.owner(importedInit)
 			}
 
+			// Add the synthetic forward edge: importerInit depends on importedInit.
+			// This keeps Function.Deps consistent with the reverse index so that DOT
+			// output and transitive hashing correctly reflect blank-import dependencies.
+			dep := a.toDependency(importedInit)
+			fn := functions[importerKey]
+			if !hasDep(fn.Deps, importedKey) {
+				fn.Deps = append(fn.Deps, dep)
+				functions[importerKey] = fn
+				updated := nodes[importerKey]
+				updated.Deps = fn.Deps
+				nodes[importerKey] = updated
+			}
+
 			// Add the synthetic reverse edge: importedInit ← importerInit.
 			if !hasString(reverseIndex[importedKey], importerKey) {
 				reverseIndex[importedKey] = append(reverseIndex[importedKey], importerKey)

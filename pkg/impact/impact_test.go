@@ -276,10 +276,9 @@ func TestComputeImpact_ToolsExcludedByServiceDir(t *testing.T) {
 // causes the importing service to be scheduled for rebuild, and does NOT cause
 // an unrelated service to rebuild.
 //
-// This test is expected to FAIL until the analyzer synthesises a dependency
-// edge for blank imports and ComputeImpact propagates through it. Without the
-// edge, ComputeImpact finds no service reachable from sideeffect.init and the
-// fallback (rebuild all) would incorrectly include svc-b.
+// The graph includes a reverse-index edge from core/sideeffect.init to
+// services/svc-a.main (representing svc-a's blank import of sideeffect).
+// ComputeImpact must propagate through that edge and schedule only svc-a.
 func TestComputeImpact_BlankImportSideEffectTriggersRebuild(t *testing.T) {
 	// svc-a blank-imports sideeffect; svc-b does not depend on it at all.
 	// The correct behaviour: only svc-a rebuilds.
@@ -295,8 +294,8 @@ func TestComputeImpact_BlankImportSideEffectTriggersRebuild(t *testing.T) {
 			"services/svc-b.main":  "services/svc-b",
 		},
 		map[string][]string{
-			// The edge from sideeffect.init -> svc-a.main is what the fix must add.
-			// Currently absent, so this test fails.
+			// ReverseIndex is keyed by callee; the entry below means
+			// svc-a.main (caller/importer) depends on sideeffect.init (callee/importee).
 			"core/sideeffect.init": {"services/svc-a.main"},
 		},
 	)
