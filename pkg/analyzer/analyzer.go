@@ -572,6 +572,39 @@ func (a *Analyzer) synthesiseBlankImportEdges(
 			if !hasString(reverseIndex[importedKey], importerKey) {
 				reverseIndex[importedKey] = append(reverseIndex[importedKey], importerKey)
 			}
+
+			// Wire each real init body (init#1, init#2, …) of the imported
+			// package into the reverse index pointing at the synthetic wrapper.
+			//
+			// SSA splits package initialisation into a synthetic coordinator
+			// (Func("init"), isSynthetic=true) that calls the real user-written
+			// bodies (init#1, init#2, …).  CHA does not emit edges for those
+			// calls, so without this wiring a change detected on init#1 would
+			// have no path in the reverse index to reach the importing service.
+			//
+			// By adding init#1 → sideeffect.init here we complete the chain:
+			//   init#1 → sideeffect.init → service-a.init → service-a
+			for name, member := range importedSSA.Members {
+				if !strings.HasPrefix(name, "init#") {
+					continue
+				}
+				realInit, ok := member.(*ssa.Function)
+				if !ok || realInit == nil {
+					continue
+				}
+				realKey := funcKey(realInit)
+				// Register the real init body if not already in the graph.
+				if _, exists := functions[realKey]; !exists {
+					f := a.toFunction(realInit)
+					functions[realKey] = f
+					nodes[realKey] = *f
+					functionOwner[realKey] = a.owner(realInit)
+				}
+				// Edge: realInit → synthetic importedInit
+				if !hasString(reverseIndex[realKey], importedKey) {
+					reverseIndex[realKey] = append(reverseIndex[realKey], importedKey)
+				}
+			}
 		}
 	}
 }

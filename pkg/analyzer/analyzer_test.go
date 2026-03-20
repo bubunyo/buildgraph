@@ -355,6 +355,40 @@ func TestBuildGraph_BlankImport_SideEffectTrackedInReverseIndex(t *testing.T) {
 		"service-a must appear as a caller of sideeffect via blank import; keys=%v", sideeffectKeys)
 }
 
+// TestBuildGraph_BlankImport_RealInitBodyInReverseIndex asserts that the
+// real user-written init body (init#1 in SSA) of a blank-imported package is
+// also present in the reverse index, so that a change detected on that
+// function propagates to the importing service.
+//
+// SSA splits package initialisation into a synthetic wrapper (init, isSynthetic)
+// and one or more real bodies (init#1, init#2, …).  synthesiseBlankImportEdges
+// must wire each init#N → synthetic init in the reverse index so that
+// ComputeImpact can walk: init#1 → sideeffect.init → service-a.init → service-a.
+func TestBuildGraph_BlankImport_RealInitBodyInReverseIndex(t *testing.T) {
+	a := loadedAnalyzer(t)
+	_, graph, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	const sideeffectPkg = "sideeffect"
+
+	// Collect every sideeffect key that is a numbered init body (init#N).
+	var realInitKeys []string
+	for k := range graph.FunctionOwner {
+		if strings.Contains(k, sideeffectPkg) && strings.Contains(k, "init#") {
+			realInitKeys = append(realInitKeys, k)
+		}
+	}
+	require.NotEmpty(t, realInitKeys,
+		"sideeffect must have at least one real init body (init#N) in FunctionOwner")
+
+	// Every real init body must have an entry in the reverse index so that
+	// impact propagation can reach the importing service.
+	for _, k := range realInitKeys {
+		assert.Contains(t, graph.ReverseIndex, k,
+			"real init body %q must be in ReverseIndex so changes propagate to service-a", k)
+	}
+}
+
 // TestBuildGraph_ToolsLoadedButNotServices verifies that when the testproject
 // has a tools/tool-a package (which imports a shared core module and has a
 // main function), the analyzer loads it as part of the graph — but that it is
