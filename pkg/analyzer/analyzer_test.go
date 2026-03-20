@@ -328,27 +328,31 @@ func TestBuildGraph_BlankImport_SideEffectTrackedInReverseIndex(t *testing.T) {
 	const serviceAPkg = "service-a"
 
 	// sideeffect.init must appear in the reverse index — service-a blank-imports it.
-	var sideeffectKey string
+	// Collect all matching keys in case SSA produces more than one (e.g. init#1).
+	var sideeffectKeys []string
 	for k := range graph.ReverseIndex {
 		if strings.Contains(k, sideeffectPkg) {
-			sideeffectKey = k
-			break
+			sideeffectKeys = append(sideeffectKeys, k)
 		}
 	}
-	require.NotEmpty(t, sideeffectKey,
+	require.NotEmpty(t, sideeffectKeys,
 		"sideeffect.init must appear in the reverse index (service-a blank-imports it)")
 
-	// service-a must be listed as a caller of sideeffect.
-	callers := graph.ReverseIndex[sideeffectKey]
+	// At least one sideeffect key must list service-a as a caller.
 	found := false
-	for _, caller := range callers {
-		if strings.Contains(caller, serviceAPkg) {
-			found = true
+	for _, k := range sideeffectKeys {
+		for _, caller := range graph.ReverseIndex[k] {
+			if strings.Contains(caller, serviceAPkg) {
+				found = true
+				break
+			}
+		}
+		if found {
 			break
 		}
 	}
 	assert.True(t, found,
-		"service-a must appear as a caller of sideeffect via blank import; callers=%v", callers)
+		"service-a must appear as a caller of sideeffect via blank import; keys=%v", sideeffectKeys)
 }
 
 // TestBuildGraph_ToolsLoadedButNotServices verifies that when the testproject

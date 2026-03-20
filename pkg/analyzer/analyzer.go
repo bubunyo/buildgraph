@@ -514,7 +514,16 @@ func (a *Analyzer) synthesiseBlankImportEdges(
 		}
 		importerKey := funcKey(importerInit)
 
-		for importPath, importedPkg := range pkg.Imports {
+		// Sort import paths so that the order in which synthetic edges are
+		// appended to Deps and ReverseIndex is deterministic across runs.
+		importPaths := make([]string, 0, len(pkg.Imports))
+		for p := range pkg.Imports {
+			importPaths = append(importPaths, p)
+		}
+		slices.Sort(importPaths)
+
+		for _, importPath := range importPaths {
+			importedPkg := pkg.Imports[importPath]
 			if named[importPath] {
 				continue // regular import — CHA already handles it
 			}
@@ -577,10 +586,12 @@ func namedImports(pkg *packages.Package) map[string]bool {
 			// imp.Name == nil  → default name (not blank)
 			// imp.Name.Name == "_" → blank import
 			if imp.Name == nil || imp.Name.Name != "_" {
-				// Unquote the import path string literal.
+				// Unquote the import path string literal.  On failure
+				// (malformed syntax), treat the import as named so we
+				// never synthesise a false blank-import edge.
 				p, err := strconv.Unquote(imp.Path.Value)
 				if err != nil {
-					continue
+					p = strings.Trim(imp.Path.Value, `"`)
 				}
 				named[p] = true
 			}
