@@ -6,6 +6,7 @@ import (
 	"github.com/bubunyo/buildgraph/testproject/core/collision"
 	module_a "github.com/bubunyo/buildgraph/testproject/core/module-a"
 	module_b "github.com/bubunyo/buildgraph/testproject/core/module-b"
+	_ "github.com/bubunyo/buildgraph/testproject/core/sideeffect"
 )
 
 func main() {

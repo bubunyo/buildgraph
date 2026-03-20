@@ -19,6 +19,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/callgraph"
@@ -195,6 +196,18 @@ func (a *Analyzer) BuildGraph() (map[string]*types.Function, *types.CallGraph, e
 	}); err != nil {
 		return nil, nil, err
 	}
+
+	// Synthesise dependency edges for blank imports (import _ "pkg").
+	//
+	// CHA only walks explicit call instructions, so blank-imported packages
+	// leave no call edge even though their init() runs at startup — meaning a
+	// change to a blank-imported package would be silently missed.
+	//
+	// For every internal package P that blank-imports another internal package
+	// Q, we add a synthetic edge: P.init → Q.init in the reverse index.  This
+	// makes ComputeImpact aware that a change in Q must trigger a rebuild of
+	// any service that (transitively) imports Q for side effects.
+	a.synthesiseBlankImportEdges(functions, nodes, reverseIndex, functionOwner)
 
 	// Also capture functions that have no edges at all (leaf functions with
 	// no callers and no callees) by walking every SSA function directly.
@@ -450,6 +463,174 @@ func (a *Analyzer) buildPatterns() []string {
 		patterns = []string{"./..."}
 	}
 	return patterns
+}
+
+// synthesiseBlankImportEdges adds synthetic reverse-index edges for blank
+// imports (import _ "pkg").
+//
+// CHA only walks explicit SSA call instructions, so blank-imported packages
+// leave no edge in the call graph even though their init() function is
+// guaranteed to run before the importing package's init().  Without this
+// synthesis, a change to a blank-imported package would be silently missed.
+//
+// Strategy:
+//  1. For each loaded *packages.Package P, look at P.Imports.  Any entry
+//     whose import path is not referenced by the syntax tree as a named import
+//     is a blank import (the go/packages loader still includes it in Imports).
+//  2. Find the SSA init function for both P and the blank-imported package Q.
+//  3. Register Q.init and P.init in the graph if not already present.
+//  4. Add P.init → Q.init to the reverse index, so ComputeImpact knows that
+//     a change in Q propagates to every service that (transitively) imports P.
+func (a *Analyzer) synthesiseBlankImportEdges(
+	functions map[string]*types.Function,
+	nodes map[string]types.Function,
+	reverseIndex map[string][]string,
+	functionOwner map[string]string,
+) {
+	for _, pkg := range a.allPkgs {
+		if !strings.HasPrefix(pkg.PkgPath, a.rootModule) {
+			continue
+		}
+
+		// Collect the set of import paths that appear as named (non-blank)
+		// identifiers in the source syntax.  Any import in pkg.Imports that is
+		// NOT in this set was blank-imported.
+		named := namedImports(pkg)
+
+		// Fast path: if every import is named, there is nothing to synthesise.
+		if len(named) == len(pkg.Imports) {
+			continue
+		}
+
+		// Resolve the importer's SSA package once — it is shared across all
+		// blank imports of this package.
+		importerSSA := a.prog.Package(pkg.Types)
+		if importerSSA == nil {
+			continue
+		}
+		importerInit := importerSSA.Func("init")
+		if importerInit == nil {
+			continue
+		}
+		importerKey := funcKey(importerInit)
+
+		// Sort import paths so that the order in which synthetic edges are
+		// appended to Deps and ReverseIndex is deterministic across runs.
+		importPaths := make([]string, 0, len(pkg.Imports))
+		for p := range pkg.Imports {
+			importPaths = append(importPaths, p)
+		}
+		slices.Sort(importPaths)
+
+		for _, importPath := range importPaths {
+			importedPkg := pkg.Imports[importPath]
+			if named[importPath] {
+				continue // regular import — CHA already handles it
+			}
+			if !strings.HasPrefix(importPath, a.rootModule) {
+				continue // only care about internal blank imports
+			}
+
+			importedSSA := a.prog.Package(importedPkg.Types)
+			if importedSSA == nil {
+				continue
+			}
+			importedInit := importedSSA.Func("init")
+			if importedInit == nil {
+				continue
+			}
+			importedKey := funcKey(importedInit)
+
+			// Ensure both init functions are registered in the graph.
+			if _, exists := functions[importerKey]; !exists {
+				f := a.toFunction(importerInit)
+				functions[importerKey] = f
+				nodes[importerKey] = *f
+				functionOwner[importerKey] = a.owner(importerInit)
+			}
+			if _, exists := functions[importedKey]; !exists {
+				f := a.toFunction(importedInit)
+				functions[importedKey] = f
+				nodes[importedKey] = *f
+				functionOwner[importedKey] = a.owner(importedInit)
+			}
+
+			// Add the synthetic forward edge: importerInit depends on importedInit.
+			// This keeps Function.Deps consistent with the reverse index so that DOT
+			// output and transitive hashing correctly reflect blank-import dependencies.
+			dep := a.toDependency(importedInit)
+			fn := functions[importerKey]
+			if !hasDep(fn.Deps, importedKey) {
+				fn.Deps = append(fn.Deps, dep)
+				functions[importerKey] = fn
+				updated := nodes[importerKey]
+				updated.Deps = fn.Deps
+				nodes[importerKey] = updated
+			}
+
+			// Add the synthetic reverse edge: importedInit ← importerInit.
+			if !hasString(reverseIndex[importedKey], importerKey) {
+				reverseIndex[importedKey] = append(reverseIndex[importedKey], importerKey)
+			}
+
+			// Wire each real init body (init#1, init#2, …) of the imported
+			// package into the reverse index pointing at the synthetic wrapper.
+			//
+			// SSA splits package initialisation into a synthetic coordinator
+			// (Func("init"), isSynthetic=true) that calls the real user-written
+			// bodies (init#1, init#2, …).  CHA does not emit edges for those
+			// calls, so without this wiring a change detected on init#1 would
+			// have no path in the reverse index to reach the importing service.
+			//
+			// By adding init#1 → sideeffect.init here we complete the chain:
+			//   init#1 → sideeffect.init → service-a.init → service-a
+			for name, member := range importedSSA.Members {
+				if !strings.HasPrefix(name, "init#") {
+					continue
+				}
+				realInit, ok := member.(*ssa.Function)
+				if !ok || realInit == nil {
+					continue
+				}
+				realKey := funcKey(realInit)
+				// Register the real init body if not already in the graph.
+				if _, exists := functions[realKey]; !exists {
+					f := a.toFunction(realInit)
+					functions[realKey] = f
+					nodes[realKey] = *f
+					functionOwner[realKey] = a.owner(realInit)
+				}
+				// Edge: realInit → synthetic importedInit
+				if !hasString(reverseIndex[realKey], importedKey) {
+					reverseIndex[realKey] = append(reverseIndex[realKey], importedKey)
+				}
+			}
+		}
+	}
+}
+
+// namedImports returns the set of import paths that are referenced under a
+// non-blank local name in the given package's syntax files.  Any import path
+// present in pkg.Imports but absent from this set was blank-imported.
+func namedImports(pkg *packages.Package) map[string]bool {
+	named := make(map[string]bool)
+	for _, file := range pkg.Syntax {
+		for _, imp := range file.Imports {
+			// imp.Name == nil  → default name (not blank)
+			// imp.Name.Name == "_" → blank import
+			if imp.Name == nil || imp.Name.Name != "_" {
+				// Unquote the import path string literal.  On failure
+				// (malformed syntax), treat the import as named so we
+				// never synthesise a false blank-import edge.
+				p, err := strconv.Unquote(imp.Path.Value)
+				if err != nil {
+					p = strings.Trim(imp.Path.Value, `"`)
+				}
+				named[p] = true
+			}
+		}
+	}
+	return named
 }
 
 // applyExcludeFilters removes from functions and graph any function whose

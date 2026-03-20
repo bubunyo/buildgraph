@@ -269,6 +269,46 @@ func TestComputeImpact_ToolsExcludedByServiceDir(t *testing.T) {
 	assert.NotContains(t, result.ServicesToBuild, "tools/mytool")
 }
 
+// ── blank import / side-effect dependency ────────────────────────────────────
+
+// TestComputeImpact_BlankImportSideEffectTriggersRebuild asserts that a change
+// to a package imported only for its side effects (no explicit call edge) still
+// causes the importing service to be scheduled for rebuild, and does NOT cause
+// an unrelated service to rebuild.
+//
+// The graph includes a reverse-index edge from core/sideeffect.init to
+// services/svc-a.main (representing svc-a's blank import of sideeffect).
+// ComputeImpact must propagate through that edge and schedule only svc-a.
+func TestComputeImpact_BlankImportSideEffectTriggersRebuild(t *testing.T) {
+	// svc-a blank-imports sideeffect; svc-b does not depend on it at all.
+	// The correct behaviour: only svc-a rebuilds.
+	g := buildGraph(
+		map[string]bool{
+			"core/sideeffect.init": false,
+			"services/svc-a.main":  true,
+			"services/svc-b.main":  true,
+		},
+		map[string]string{
+			"core/sideeffect.init": "core/sideeffect",
+			"services/svc-a.main":  "services/svc-a",
+			"services/svc-b.main":  "services/svc-b",
+		},
+		map[string][]string{
+			// ReverseIndex is keyed by callee; the entry below means
+			// svc-a.main (caller/importer) depends on sideeffect.init (callee/importee).
+			"core/sideeffect.init": {"services/svc-a.main"},
+		},
+	)
+	result := NewAnalyzer(g, []string{"services"}).ComputeImpact(
+		[]types.Change{change("core/sideeffect.init")},
+	)
+
+	assert.Contains(t, result.ServicesToBuild, "services/svc-a",
+		"svc-a must rebuild: it blank-imports sideeffect")
+	assert.NotContains(t, result.ServicesToBuild, "services/svc-b",
+		"svc-b must not rebuild: it has no dependency on sideeffect")
+}
+
 // TestComputeImpact_EmptyServiceDirsFallsBackToAllMains asserts that when no
 // serviceDirs are configured (nil), all main packages — including those under
 // tools/ — are treated as services and emitted by their full owner path.
