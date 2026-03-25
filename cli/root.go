@@ -43,7 +43,7 @@ func init() {
 	_ = viper.BindPFlag("exclude.skip_vendor", rootCmd.PersistentFlags().Lookup("skip-vendor"))
 	_ = viper.BindPFlag("exclude.skip_tests", rootCmd.PersistentFlags().Lookup("skip-tests"))
 
-	rootCmd.AddCommand(analyzeCmd, generateCmd, initCmd)
+	rootCmd.AddCommand(analyzeCmd, generateCmd, graphCmd, initCmd)
 }
 
 // initConfig reads buildgraph.yaml (or the path from --config) into viper.

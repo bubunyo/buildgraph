@@ -465,22 +465,39 @@ func (a *Analyzer) buildPatterns() []string {
 	return patterns
 }
 
-// synthesiseBlankImportEdges adds synthetic reverse-index edges for blank
-// imports (import _ "pkg").
+// synthesiseBlankImportEdges adds synthetic graph edges for blank imports
+// (import _ "pkg").
 //
 // CHA only walks explicit SSA call instructions, so blank-imported packages
-// leave no edge in the call graph even though their init() function is
-// guaranteed to run before the importing package's init().  Without this
-// synthesis, a change to a blank-imported package would be silently missed.
+// leave no edge in the call graph even though their init bodies are guaranteed
+// to run before the importing package initialises.  Without this synthesis a
+// change to a blank-imported package would be silently missed.
 //
-// Strategy:
-//  1. For each loaded *packages.Package P, look at P.Imports.  Any entry
-//     whose import path is not referenced by the syntax tree as a named import
-//     is a blank import (the go/packages loader still includes it in Imports).
-//  2. Find the SSA init function for both P and the blank-imported package Q.
-//  3. Register Q.init and P.init in the graph if not already present.
-//  4. Add P.init → Q.init to the reverse index, so ComputeImpact knows that
-//     a change in Q propagates to every service that (transitively) imports P.
+// Design — direct wiring to init#N bodies:
+//
+// SSA represents package initialisation as:
+//   - A synthetic coordinator  pkg.init  (Func("init"), isSynthetic=true)
+//   - One real body per source init() or package-level var:  pkg.init#1, #2, …
+//
+// We skip the synthetic coordinator entirely and wire the importer's init
+// directly to each real init#N body of the imported package.  This keeps the
+// graph free of invisible intermediary nodes and makes every edge visible and
+// meaningful:
+//
+//	service-a.init → sideeffect.init#1
+//	service-a.init → sideeffect.init#2   (one edge per real init body)
+//
+// If the imported package has no init#N bodies (nothing to run at init time)
+// we skip it — there is nothing to represent.
+//
+// Importer side wiring (symmetric):
+//   - service-a.init#N → service-a.init   (real importer bodies → coordinator)
+//   - service-a.init   → service-a.main   (coordinator → main, for main pkgs)
+//
+// Full propagation chain example:
+//
+//	sideeffect.init#1 ← service-a.init ← service-a.main
+//	sideeffect.init#2 ← service-a.init
 func (a *Analyzer) synthesiseBlankImportEdges(
 	functions map[string]*types.Function,
 	nodes map[string]types.Function,
@@ -514,8 +531,8 @@ func (a *Analyzer) synthesiseBlankImportEdges(
 		}
 		importerKey := funcKey(importerInit)
 
-		// Sort import paths so that the order in which synthetic edges are
-		// appended to Deps and ReverseIndex is deterministic across runs.
+		// Sort import paths so that append order into Deps and ReverseIndex is
+		// deterministic across runs.
 		importPaths := make([]string, 0, len(pkg.Imports))
 		for p := range pkg.Imports {
 			importPaths = append(importPaths, p)
@@ -528,81 +545,125 @@ func (a *Analyzer) synthesiseBlankImportEdges(
 				continue // regular import — CHA already handles it
 			}
 			if !strings.HasPrefix(importPath, a.rootModule) {
-				continue // only care about internal blank imports
+				continue // only track internal blank imports
 			}
 
 			importedSSA := a.prog.Package(importedPkg.Types)
 			if importedSSA == nil {
 				continue
 			}
-			importedInit := importedSSA.Func("init")
-			if importedInit == nil {
+
+			// Collect real init bodies (init#1, init#2, …) of the imported
+			// package, sorted for determinism.  We deliberately skip the
+			// synthetic coordinator (importedSSA.Func("init")) — only the
+			// numbered bodies represent actual user code or variable init.
+			var realInitNames []string
+			for name := range importedSSA.Members {
+				if strings.HasPrefix(name, "init#") {
+					realInitNames = append(realInitNames, name)
+				}
+			}
+			slices.Sort(realInitNames)
+
+			// If the imported package has no real init bodies there is nothing
+			// to represent — skip it entirely.
+			if len(realInitNames) == 0 {
 				continue
 			}
-			importedKey := funcKey(importedInit)
 
-			// Ensure both init functions are registered in the graph.
+			// ── Register the importer's synthetic init coordinator ────────
+
 			if _, exists := functions[importerKey]; !exists {
 				f := a.toFunction(importerInit)
 				functions[importerKey] = f
 				nodes[importerKey] = *f
 				functionOwner[importerKey] = a.owner(importerInit)
 			}
-			if _, exists := functions[importedKey]; !exists {
-				f := a.toFunction(importedInit)
-				functions[importedKey] = f
-				nodes[importedKey] = *f
-				functionOwner[importedKey] = a.owner(importedInit)
-			}
 
-			// Add the synthetic forward edge: importerInit depends on importedInit.
-			// This keeps Function.Deps consistent with the reverse index so that DOT
-			// output and transitive hashing correctly reflect blank-import dependencies.
-			dep := a.toDependency(importedInit)
-			fn := functions[importerKey]
-			if !hasDep(fn.Deps, importedKey) {
-				fn.Deps = append(fn.Deps, dep)
-				functions[importerKey] = fn
-				updated := nodes[importerKey]
-				updated.Deps = fn.Deps
-				nodes[importerKey] = updated
-			}
-
-			// Add the synthetic reverse edge: importedInit ← importerInit.
-			if !hasString(reverseIndex[importedKey], importerKey) {
-				reverseIndex[importedKey] = append(reverseIndex[importedKey], importerKey)
-			}
-
-			// Wire each real init body (init#1, init#2, …) of the imported
-			// package into the reverse index pointing at the synthetic wrapper.
+			// ── Wire importer.init → each imported init#N ─────────────────
 			//
-			// SSA splits package initialisation into a synthetic coordinator
-			// (Func("init"), isSynthetic=true) that calls the real user-written
-			// bodies (init#1, init#2, …).  CHA does not emit edges for those
-			// calls, so without this wiring a change detected on init#1 would
-			// have no path in the reverse index to reach the importing service.
-			//
-			// By adding init#1 → sideeffect.init here we complete the chain:
-			//   init#1 → sideeffect.init → service-a.init → service-a
-			for name, member := range importedSSA.Members {
-				if !strings.HasPrefix(name, "init#") {
-					continue
-				}
-				realInit, ok := member.(*ssa.Function)
+			// For every real init body of the blank-imported package, add:
+			//   • a forward dep on importerInit  (visible in DOT / hashing)
+			//   • a reverse edge init#N ← importerInit  (drives BFS in impact)
+
+			for _, name := range realInitNames {
+				realInit, ok := importedSSA.Members[name].(*ssa.Function)
 				if !ok || realInit == nil {
 					continue
 				}
 				realKey := funcKey(realInit)
-				// Register the real init body if not already in the graph.
+
 				if _, exists := functions[realKey]; !exists {
 					f := a.toFunction(realInit)
 					functions[realKey] = f
 					nodes[realKey] = *f
 					functionOwner[realKey] = a.owner(realInit)
 				}
-				// Edge: realInit → synthetic importedInit
-				if !hasString(reverseIndex[realKey], importedKey) {
-					reverseIndex[realKey] = append(reverseIndex[realKey], importedKey)
+
+				// Forward dep: importerInit → realInit
+				dep := a.toDependency(realInit)
+				fn := functions[importerKey]
+				if !hasDep(fn.Deps, realKey) {
+					fn.Deps = append(fn.Deps, dep)
+					functions[importerKey] = fn
+					updated := nodes[importerKey]
+					updated.Deps = fn.Deps
+					nodes[importerKey] = updated
+				}
+
+				// Reverse edge: realInit ← importerInit
+				if !hasString(reverseIndex[realKey], importerKey) {
+					reverseIndex[realKey] = append(reverseIndex[realKey], importerKey)
+				}
+			}
+
+			// ── Importer side: wire init#N → importer.init ───────────────
+			//
+			// If the importer itself has real init bodies, wire each one to
+			// the importer's synthetic coordinator so changes to those bodies
+			// also propagate up:
+			//   service-a.init#N → service-a.init → service-a.main
+			var importerRealNames []string
+			for name := range importerSSA.Members {
+				if strings.HasPrefix(name, "init#") {
+					importerRealNames = append(importerRealNames, name)
+				}
+			}
+			slices.Sort(importerRealNames)
+
+			for _, name := range importerRealNames {
+				realImporterInit, ok := importerSSA.Members[name].(*ssa.Function)
+				if !ok || realImporterInit == nil {
+					continue
+				}
+				realImporterKey := funcKey(realImporterInit)
+				if _, exists := functions[realImporterKey]; !exists {
+					f := a.toFunction(realImporterInit)
+					functions[realImporterKey] = f
+					nodes[realImporterKey] = *f
+					functionOwner[realImporterKey] = a.owner(realImporterInit)
+				}
+				if !hasString(reverseIndex[realImporterKey], importerKey) {
+					reverseIndex[realImporterKey] = append(reverseIndex[realImporterKey], importerKey)
+				}
+			}
+
+			// ── Wire importer.init → importer.main (main packages only) ──
+			//
+			// Without this edge the BFS would stop at service-a.init and never
+			// reach service-a.main.
+			importerMain := importerSSA.Func("main")
+			if importerMain != nil && importerMain.Package() != nil &&
+				importerMain.Package().Pkg.Name() == "main" {
+				importerMainKey := funcKey(importerMain)
+				if _, exists := functions[importerMainKey]; !exists {
+					f := a.toFunction(importerMain)
+					functions[importerMainKey] = f
+					nodes[importerMainKey] = *f
+					functionOwner[importerMainKey] = a.owner(importerMain)
+				}
+				if !hasString(reverseIndex[importerKey], importerMainKey) {
+					reverseIndex[importerKey] = append(reverseIndex[importerKey], importerMainKey)
 				}
 			}
 		}
