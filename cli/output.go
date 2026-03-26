@@ -10,6 +10,143 @@ import (
 	"github.com/bubunyo/buildgraph/pkg/types"
 )
 
+// isStdlib reports whether a function key belongs to the Go standard library.
+//
+// Stdlib keys have no "/" in their name (e.g. "fmt.Println", "os.Exit").
+// All module-internal and third-party keys contain at least one "/" as part of
+// their import path (e.g. "github.com/org/pkg.Func").
+func isStdlib(key string) bool {
+	return !strings.Contains(key, "/")
+}
+
+// writeGraphOutput serialises a full call graph in the requested format and
+// writes it to outputPath (or stdout if outputPath is empty).
+// Currently only "dot" is supported; any other value is treated as "dot".
+func writeGraphOutput(graph *types.CallGraph, format, outputPath string, showStdlib bool) {
+	var output []byte
+	// Only dot is supported for now; treat anything else as dot too.
+	_ = format
+	output = []byte(formatFullDot(graph, showStdlib))
+
+	if outputPath != "" {
+		if err := os.WriteFile(outputPath, output, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to write output: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	fmt.Println(string(output))
+}
+
+// formatFullDot renders the entire call graph as a Graphviz DOT digraph.
+//
+// Unlike formatDot (which shows only the impact of a change), this function
+// dumps every function in the graph so you can visualise the full call
+// structure:
+//
+//   - One subgraph cluster per owner (service / tool / library), sorted
+//     alphabetically for deterministic output.
+//   - Main-package entry points are filled light-blue (#d0e8ff) to make them
+//     easy to spot.
+//   - All other nodes are white.
+//   - Every edge from node.Deps is emitted, including cross-cluster edges.
+//   - Node IDs are always double-quoted (same as formatDot) so the output is
+//     safe to pipe directly into `dot -Tpng`.
+//
+// When showStdlib is false (the default), stdlib dependency edges are omitted.
+// Stdlib functions are identified by the absence of "/" in their key — all
+// module-internal and third-party packages have at least one "/" in their
+// import path, while stdlib functions like fmt.Println do not.
+func formatFullDot(graph *types.CallGraph, showStdlib bool) string {
+	dotID := func(fn string) string {
+		escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(fn)
+		return `"` + escaped + `"`
+	}
+
+	// Build owner → []funcKey map from FunctionOwner, sorted for determinism.
+	ownerFuncs := make(map[string][]string)
+	for key, owner := range graph.FunctionOwner {
+		ownerFuncs[owner] = append(ownerFuncs[owner], key)
+	}
+	// Also ensure any node not in FunctionOwner (edge-only nodes) is captured
+	// under a synthetic "(unknown)" owner so it still appears in the graph.
+	for key := range graph.Nodes {
+		if _, ok := graph.FunctionOwner[key]; !ok {
+			ownerFuncs["(unknown)"] = append(ownerFuncs["(unknown)"], key)
+		}
+	}
+
+	owners := make([]string, 0, len(ownerFuncs))
+	for o := range ownerFuncs {
+		owners = append(owners, o)
+	}
+	sort.Strings(owners)
+
+	sb := &strings.Builder{}
+	fmt.Fprintln(sb, "digraph buildgraph {")
+	fmt.Fprintln(sb, `  rankdir=LR;`)
+	fmt.Fprintln(sb, `  node [fontname="Helvetica", fontsize=11, style=filled, fillcolor=white];`)
+	fmt.Fprintln(sb, `  edge [fontsize=9];`)
+	fmt.Fprintln(sb)
+
+	clusterIdx := 0
+	for _, owner := range owners {
+		keys := ownerFuncs[owner]
+		if len(keys) == 0 {
+			continue
+		}
+		sort.Strings(keys)
+
+		fmt.Fprintf(sb, "  subgraph cluster_%d {\n", clusterIdx)
+		fmt.Fprintf(sb, "    label=%q;\n", owner)
+		fmt.Fprintln(sb, `    style=rounded;`)
+		fmt.Fprintln(sb, `    color="#888888";`)
+		fmt.Fprintln(sb)
+
+		for _, key := range keys {
+			id := dotID(key)
+			lbl := shortLabel(key)
+			node, inNodes := graph.Nodes[key]
+			if inNodes && node.IsMain {
+				fmt.Fprintf(sb, "    %s [label=%q, fillcolor=\"#d0e8ff\"];\n", id, lbl)
+			} else {
+				fmt.Fprintf(sb, "    %s [label=%q];\n", id, lbl)
+			}
+		}
+		fmt.Fprintln(sb, "  }")
+		fmt.Fprintln(sb)
+		clusterIdx++
+	}
+
+	// Emit edges from Deps. When showStdlib is false, skip edges whose target
+	// is a stdlib function (no "/" in the key).
+	fmt.Fprintln(sb, "  // edges")
+	edgesSeen := make(map[string]bool)
+	// Iterate in sorted key order for determinism.
+	nodeKeys := make([]string, 0, len(graph.Nodes))
+	for k := range graph.Nodes {
+		nodeKeys = append(nodeKeys, k)
+	}
+	sort.Strings(nodeKeys)
+	for _, key := range nodeKeys {
+		node := graph.Nodes[key]
+		for _, dep := range node.Deps {
+			if !showStdlib && isStdlib(dep.FullName) {
+				continue
+			}
+			edgeKey := key + "->" + dep.FullName
+			if edgesSeen[edgeKey] {
+				continue
+			}
+			edgesSeen[edgeKey] = true
+			fmt.Fprintf(sb, "  %s -> %s;\n", dotID(key), dotID(dep.FullName))
+		}
+	}
+
+	fmt.Fprintln(sb, "}")
+	return sb.String()
+}
+
 // writeOutput serialises result in the requested format and writes it to
 // outputPath (or stdout if outputPath is empty).
 func writeOutput(result *types.Result, graph *types.CallGraph, format, outputPath string) {
@@ -70,6 +207,37 @@ func formatText(result *types.Result) string {
 	return sb.String()
 }
 
+// shortLabel strips the module path prefix from a fully-qualified Go function
+// key for readability in DOT labels.
+//
+// Normal form:  "github.com/org/pkg/sub.Func"           → "sub.Func"
+// Pointer form: "(*github.com/org/pkg/sub.Type).Method" → "(*sub.Type).Method"
+//
+// The pointer form is handled explicitly: the import path inside the parens is
+// stripped by taking the last slash-separated segment, and the result is
+// reassembled as "(*<pkg.Type>).<Method>".
+func shortLabel(fn string) string {
+	if strings.HasPrefix(fn, "(*") {
+		// Strip leading "(*" and find the closing ")".
+		inner := fn[2:] // e.g. "github.com/org/pkg/sub.Type).Method"
+		closing := strings.Index(inner, ")")
+		if closing >= 0 {
+			typePath := inner[:closing] // e.g. "github.com/org/pkg/sub.Type"
+			rest := inner[closing+1:]   // e.g. ".Method"
+			// Take the last slash-segment of typePath.
+			if i := strings.LastIndex(typePath, "/"); i >= 0 {
+				typePath = typePath[i+1:]
+			}
+			return "(*" + typePath + ")" + rest
+		}
+	}
+	// Normal form: take the last slash-separated segment.
+	if i := strings.LastIndex(fn, "/"); i >= 0 {
+		return fn[i+1:]
+	}
+	return fn
+}
+
 // formatDot renders the impact as a Graphviz DOT digraph.
 //
 // Layout:
@@ -103,21 +271,14 @@ func formatDot(result *types.Result, graph *types.CallGraph) string {
 		rebuiltServices[s] = true
 	}
 
-	// dotID converts a fully-qualified function name to a safe DOT node ID.
+	// dotID converts a fully-qualified function name to a safe DOT node ID by
+	// quoting it as a DOT string literal.  DOT accepts any double-quoted string
+	// as a valid ID, so this handles all special characters that appear in Go
+	// function keys: *, #, (, ), /, ., -, @, [, ], etc.
+	// Internal double-quotes and backslashes are escaped so the literal is valid.
 	dotID := func(fn string) string {
-		r := strings.NewReplacer(".", "_", "/", "_", "-", "_", "(", "_", ")", "_")
-		return r.Replace(fn)
-	}
-
-	// shortLabel strips the module prefix for readability.
-	shortLabel := func(fn string) string {
-		// Keep only "package.Func" — last two dot-separated segments.
-		parts := strings.Split(fn, "/")
-		if len(parts) == 0 {
-			return fn
-		}
-		last := parts[len(parts)-1]
-		return last
+		escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(fn)
+		return `"` + escaped + `"`
 	}
 
 	sb := &strings.Builder{}

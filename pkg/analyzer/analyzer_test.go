@@ -389,6 +389,166 @@ func TestBuildGraph_BlankImport_RealInitBodyInReverseIndex(t *testing.T) {
 	}
 }
 
+// TestBuildGraph_BlankImport_ImporterInitLinkedToMain asserts that the
+// importer's synthetic init coordinator is wired to the importer's main
+// function in the reverse index.
+//
+// Without this edge the BFS in ComputeImpact stops at service-a.init and
+// never reaches service-a.main, so no rebuild is triggered even though the
+// blank-imported package changed.
+//
+// Expected chain: sideeffect.init#1 → sideeffect.init → service-a.init → service-a.main
+func TestBuildGraph_BlankImport_ImporterInitLinkedToMain(t *testing.T) {
+	a := loadedAnalyzer(t)
+	_, graph, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	const serviceAPkg = "service-a"
+
+	// Locate the service-a synthetic init key.
+	serviceAInitKey := ""
+	for k := range graph.FunctionOwner {
+		if strings.Contains(k, serviceAPkg) && strings.HasSuffix(k, ".init") && !strings.Contains(k, "init#") {
+			serviceAInitKey = k
+			break
+		}
+	}
+	require.NotEmpty(t, serviceAInitKey,
+		"service-a synthetic init must be present in FunctionOwner")
+
+	// Locate the service-a main key.
+	serviceAMainKey := ""
+	for k := range graph.Nodes {
+		if strings.Contains(k, serviceAPkg) && strings.HasSuffix(k, ".main") {
+			serviceAMainKey = k
+			break
+		}
+	}
+	require.NotEmpty(t, serviceAMainKey,
+		"service-a main function must be present in graph nodes")
+
+	// The synthetic init must list service-a.main as a caller in the reverse index.
+	assert.Contains(t, graph.ReverseIndex, serviceAInitKey,
+		"service-a.init must have an entry in ReverseIndex so changes propagate to service-a.main")
+	assert.Contains(t, graph.ReverseIndex[serviceAInitKey], serviceAMainKey,
+		"service-a.main must be listed as a caller of service-a.init in the reverse index")
+}
+
+// TestBuildGraph_BlankImport_ImporterRealInitInReverseIndex asserts that if
+// the importer (service-a) has real user-written init bodies (init#N), each of
+// those is wired to the importer's synthetic init coordinator in the reverse
+// index — mirroring the wiring already applied for the imported (sideeffect)
+// side.
+//
+// Note: service-a/main.go currently has no func init(), so this test verifies
+// the absence of init#N keys for service-a rather than their presence.  If a
+// func init() is added to service-a in future, the test will correctly demand
+// that those keys are wired.
+func TestBuildGraph_BlankImport_ImporterRealInitInReverseIndex(t *testing.T) {
+	a := loadedAnalyzer(t)
+	_, graph, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	const serviceAPkg = "service-a"
+
+	// Collect every service-a key that is a numbered init body (init#N).
+	var realInitKeys []string
+	for k := range graph.FunctionOwner {
+		if strings.Contains(k, serviceAPkg) && strings.Contains(k, "init#") {
+			realInitKeys = append(realInitKeys, k)
+		}
+	}
+
+	// Every real init#N that exists must be wired in the reverse index.
+	for _, k := range realInitKeys {
+		assert.Contains(t, graph.ReverseIndex, k,
+			"service-a real init body %q must be in ReverseIndex pointing at service-a.init", k)
+		callers := graph.ReverseIndex[k]
+		found := false
+		for _, c := range callers {
+			if strings.Contains(c, serviceAPkg) && strings.HasSuffix(c, ".init") && !strings.Contains(c, "init#") {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found,
+			"service-a.init must be in the callers of %q", k)
+	}
+}
+
+// TestBuildGraph_BlankImport_FullChainReachesService is an integration test
+// that runs a real ComputeImpact over the testproject graph and asserts that
+// a simulated change to sideeffect.init#1 causes service-a to be scheduled
+// for rebuild.
+func TestBuildGraph_BlankImport_FullChainReachesService(t *testing.T) {
+	a := loadedAnalyzer(t)
+	fns, graph, err := a.BuildGraph()
+	require.NoError(t, err)
+	require.NoError(t, a.ComputeHashes(fns, nil, nil))
+
+	// Find the sideeffect init#1 key (the real init body).
+	sideeffectRealInitKey := ""
+	for k := range graph.FunctionOwner {
+		if strings.Contains(k, "sideeffect") && strings.Contains(k, "init#") {
+			sideeffectRealInitKey = k
+			break
+		}
+	}
+	require.NotEmpty(t, sideeffectRealInitKey,
+		"sideeffect must have a real init body (init#N) in FunctionOwner")
+
+	impactAnalyzer := impact.NewAnalyzer(graph, []string{"services"})
+	result := impactAnalyzer.ComputeImpact([]types.Change{
+		{Function: sideeffectRealInitKey, Type: "modified"},
+	})
+
+	// service-a blank-imports sideeffect — it must be scheduled for rebuild.
+	found := false
+	for _, svc := range result.ServicesToBuild {
+		if strings.Contains(svc, "service-a") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found,
+		"service-a must be in ServicesToBuild when sideeffect.init#1 changes; got %v",
+		result.ServicesToBuild)
+
+	// service-b does not depend on sideeffect — it must not be scheduled.
+	for _, svc := range result.ServicesToBuild {
+		assert.NotContains(t, svc, "service-b",
+			"service-b must not rebuild: it has no dependency on sideeffect")
+	}
+}
+
+// TestBuildGraph_BlankImport_SyntheticInitNotInGraph asserts that the
+// synthetic SSA init coordinator of a blank-imported package does NOT appear
+// in graph.Nodes or graph.ReverseIndex.
+//
+// synthesiseBlankImportEdges must skip importedSSA.Func("init") (which has
+// Synthetic != "") and wire the importer directly to each real init#N body.
+// Allowing the synthetic node into the graph would produce invisible
+// intermediary nodes that cannot be attributed to any source location.
+func TestBuildGraph_BlankImport_SyntheticInitNotInGraph(t *testing.T) {
+	a := loadedAnalyzer(t)
+	_, graph, err := a.BuildGraph()
+	require.NoError(t, err)
+
+	// The synthetic coordinator key looks like
+	// "github.com/bubunyo/buildgraph/testproject/core/sideeffect.init"
+	// (no trailing "#N").  It must not appear in Nodes or ReverseIndex.
+	for k := range graph.Nodes {
+		if strings.Contains(k, "sideeffect") && strings.HasSuffix(k, ".init") && !strings.Contains(k, "init#") {
+			t.Errorf("synthetic sideeffect.init coordinator must not appear in graph.Nodes; found key %q", k)
+		}
+	}
+	for k := range graph.ReverseIndex {
+		if strings.Contains(k, "sideeffect") && strings.HasSuffix(k, ".init") && !strings.Contains(k, "init#") {
+			t.Errorf("synthetic sideeffect.init coordinator must not appear in graph.ReverseIndex; found key %q", k)
+		}
+	}
+}
+
 // TestBuildGraph_ToolsLoadedButNotServices verifies that when the testproject
 // has a tools/tool-a package (which imports a shared core module and has a
 // main function), the analyzer loads it as part of the graph — but that it is
