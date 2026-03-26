@@ -229,7 +229,7 @@ func fullDotGraph() *types.CallGraph {
 // appears as a quoted node ID somewhere in the DOT output.
 func TestFormatFullDot_AllNodesPresent(t *testing.T) {
 	graph := fullDotGraph()
-	out := formatFullDot(graph)
+	out := formatFullDot(graph, false)
 
 	for key := range graph.Nodes {
 		escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(key)
@@ -243,7 +243,7 @@ func TestFormatFullDot_AllNodesPresent(t *testing.T) {
 // produces a corresponding "->" edge line in the DOT output.
 func TestFormatFullDot_EdgesEmitted(t *testing.T) {
 	graph := fullDotGraph()
-	out := formatFullDot(graph)
+	out := formatFullDot(graph, false)
 
 	// svc-a.main → lib.Process (cross-cluster edge)
 	assert.Contains(t, out,
@@ -260,7 +260,7 @@ func TestFormatFullDot_EdgesEmitted(t *testing.T) {
 // subgraph cluster per distinct owner in graph.FunctionOwner.
 func TestFormatFullDot_ClustersPerOwner(t *testing.T) {
 	graph := fullDotGraph()
-	out := formatFullDot(graph)
+	out := formatFullDot(graph, false)
 
 	// Two distinct owners: "services/svc-a" and "core/lib".
 	assert.Contains(t, out, `"services/svc-a"`, "cluster label services/svc-a must appear")
@@ -275,7 +275,7 @@ func TestFormatFullDot_ClustersPerOwner(t *testing.T) {
 // are double-quoted, including keys containing special characters (* # /).
 func TestFormatFullDot_NodeIDsQuoted(t *testing.T) {
 	graph := fullDotGraph()
-	out := formatFullDot(graph)
+	out := formatFullDot(graph, false)
 
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -302,7 +302,7 @@ func TestFormatFullDot_NodeIDsQuoted(t *testing.T) {
 // are rendered with the light-blue fill colour (#d0e8ff).
 func TestFormatFullDot_MainNodeHighlighted(t *testing.T) {
 	graph := fullDotGraph()
-	out := formatFullDot(graph)
+	out := formatFullDot(graph, false)
 
 	assert.Contains(t, out, `fillcolor="#d0e8ff"`,
 		"main function node must use light-blue fill to mark it as an entry point")
@@ -310,6 +310,60 @@ func TestFormatFullDot_MainNodeHighlighted(t *testing.T) {
 	assert.NotContains(t, out,
 		`"github.com/org/repo/core/lib.Process" [label="lib.Process", fillcolor="#d0e8ff"`,
 		"non-main node must not use the main-highlight fill colour")
+}
+
+// stdlibDotGraph returns a graph that has one internal dep and one stdlib dep
+// (fmt.Println — no "/" in the key) so we can test stdlib filtering.
+func stdlibDotGraph() *types.CallGraph {
+	return &types.CallGraph{
+		Nodes: map[string]types.Function{
+			"github.com/org/repo/services/svc.main": {
+				FullName: "github.com/org/repo/services/svc.main",
+				IsMain:   true,
+				Deps: []types.Dependency{
+					{FullName: "github.com/org/repo/core/lib.Process"},
+					{FullName: "fmt.Println"}, // stdlib — no "/"
+				},
+			},
+			"github.com/org/repo/core/lib.Process": {
+				FullName: "github.com/org/repo/core/lib.Process",
+				Deps: []types.Dependency{
+					{FullName: "fmt.Sprintf"}, // stdlib
+				},
+			},
+		},
+		FunctionOwner: map[string]string{
+			"github.com/org/repo/services/svc.main": "services/svc",
+			"github.com/org/repo/core/lib.Process":  "core/lib",
+		},
+	}
+}
+
+// TestFormatFullDot_StdlibFilteredByDefault asserts that stdlib function edges
+// (keys with no "/") are excluded when showStdlib is false.
+func TestFormatFullDot_StdlibFilteredByDefault(t *testing.T) {
+	out := formatFullDot(stdlibDotGraph(), false)
+
+	assert.NotContains(t, out, "fmt.Println",
+		"stdlib fmt.Println must be absent when showStdlib=false")
+	assert.NotContains(t, out, "fmt.Sprintf",
+		"stdlib fmt.Sprintf must be absent when showStdlib=false")
+
+	// Internal edges must still be present.
+	assert.Contains(t, out,
+		`"github.com/org/repo/services/svc.main" -> "github.com/org/repo/core/lib.Process"`,
+		"internal edge must still be emitted when stdlib is filtered")
+}
+
+// TestFormatFullDot_StdlibShownWithFlag asserts that stdlib function edges are
+// included when showStdlib is true.
+func TestFormatFullDot_StdlibShownWithFlag(t *testing.T) {
+	out := formatFullDot(stdlibDotGraph(), true)
+
+	assert.Contains(t, out, "fmt.Println",
+		"stdlib fmt.Println must appear when showStdlib=true")
+	assert.Contains(t, out, "fmt.Sprintf",
+		"stdlib fmt.Sprintf must appear when showStdlib=true")
 }
 
 func TestCountFiles(t *testing.T) {

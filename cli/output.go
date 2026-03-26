@@ -10,14 +10,23 @@ import (
 	"github.com/bubunyo/buildgraph/pkg/types"
 )
 
+// isStdlib reports whether a function key belongs to the Go standard library.
+//
+// Stdlib keys have no "/" in their name (e.g. "fmt.Println", "os.Exit").
+// All module-internal and third-party keys contain at least one "/" as part of
+// their import path (e.g. "github.com/org/pkg.Func").
+func isStdlib(key string) bool {
+	return !strings.Contains(key, "/")
+}
+
 // writeGraphOutput serialises a full call graph in the requested format and
 // writes it to outputPath (or stdout if outputPath is empty).
 // Currently only "dot" is supported; any other value is treated as "dot".
-func writeGraphOutput(graph *types.CallGraph, format, outputPath string) {
+func writeGraphOutput(graph *types.CallGraph, format, outputPath string, showStdlib bool) {
 	var output []byte
 	// Only dot is supported for now; treat anything else as dot too.
 	_ = format
-	output = []byte(formatFullDot(graph))
+	output = []byte(formatFullDot(graph, showStdlib))
 
 	if outputPath != "" {
 		if err := os.WriteFile(outputPath, output, 0644); err != nil {
@@ -43,7 +52,12 @@ func writeGraphOutput(graph *types.CallGraph, format, outputPath string) {
 //   - Every edge from node.Deps is emitted, including cross-cluster edges.
 //   - Node IDs are always double-quoted (same as formatDot) so the output is
 //     safe to pipe directly into `dot -Tpng`.
-func formatFullDot(graph *types.CallGraph) string {
+//
+// When showStdlib is false (the default), stdlib dependency edges are omitted.
+// Stdlib functions are identified by the absence of "/" in their key — all
+// module-internal and third-party packages have at least one "/" in their
+// import path, while stdlib functions like fmt.Println do not.
+func formatFullDot(graph *types.CallGraph, showStdlib bool) string {
 	dotID := func(fn string) string {
 		escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(fn)
 		return `"` + escaped + `"`
@@ -104,7 +118,8 @@ func formatFullDot(graph *types.CallGraph) string {
 		clusterIdx++
 	}
 
-	// Emit all edges from Deps — unrestricted (cross-cluster included).
+	// Emit edges from Deps. When showStdlib is false, skip edges whose target
+	// is a stdlib function (no "/" in the key).
 	fmt.Fprintln(sb, "  // edges")
 	edgesSeen := make(map[string]bool)
 	// Iterate in sorted key order for determinism.
@@ -116,6 +131,9 @@ func formatFullDot(graph *types.CallGraph) string {
 	for _, key := range nodeKeys {
 		node := graph.Nodes[key]
 		for _, dep := range node.Deps {
+			if !showStdlib && isStdlib(dep.FullName) {
+				continue
+			}
 			edgeKey := key + "->" + dep.FullName
 			if edgesSeen[edgeKey] {
 				continue

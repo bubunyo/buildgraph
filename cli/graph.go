@@ -18,13 +18,18 @@ Pipe the output into dot(1) to render an image:
   buildgraph graph | dot -Tsvg -o graph.svg
 
 The diagram groups functions into clusters by owner (service / library).
-Main-package entry points are highlighted in light blue.`,
+Main-package entry points are highlighted in light blue.
+
+Standard library functions (fmt.Println, os.Exit, etc.) are excluded by
+default to keep the graph focused on your own code. Use --stdlib to include
+them.`,
 	RunE: runGraph,
 }
 
 func init() {
 	graphCmd.Flags().StringP("format", "f", "dot", "Output format (dot)")
 	graphCmd.Flags().StringP("output", "o", "", "Output file (default: stdout)")
+	graphCmd.Flags().Bool("stdlib", false, "Include standard library functions in the graph")
 }
 
 func runGraph(cmd *cobra.Command, _ []string) error {
@@ -49,7 +54,8 @@ func runGraph(cmd *cobra.Command, _ []string) error {
 
 	format, _ := cmd.Flags().GetString("format")
 	output, _ := cmd.Flags().GetString("output")
-	writeGraphOutput(graph, format, output)
+	showStdlib, _ := cmd.Flags().GetBool("stdlib")
+	writeGraphOutput(graph, format, output, showStdlib)
 
 	return nil
 }
